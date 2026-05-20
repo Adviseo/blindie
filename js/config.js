@@ -18,7 +18,7 @@ export const firebaseConfig = {
 // trailing slash).
 export const spotifyConfig = {
   clientId: "27e33cf995d94c8480ffbaf09a019ce4",
-  redirectUri: "https://adviseo.github.io/blindie/host.html",
+  redirectUri: "https://blindie-app.netlify.app/host.html",
   scopes: [
     "playlist-read-private",
     "playlist-read-collaborative",
@@ -27,7 +27,7 @@ export const spotifyConfig = {
 
 // --- App ---
 export const appConfig = {
-  baseUrl: "https://adviseo.github.io/blindie",
+  baseUrl: "https://blindie-app.netlify.app",
   defaultRoundDurationSeconds: 30,
   pointsTitle: 1,
   pointsArtist: 1,
