@@ -1,13 +1,14 @@
 # BLINDIE
 
-Web app privée de blind test entre potes. **Stack 100 % statique** (HTML/CSS/JS vanilla, ES modules) déployable sur GitHub Pages. **Aucun serveur backend.**
+Web app privée de blind test entre potes (parties à distance via Discord). **Stack 100 % statique** (HTML/CSS/JS vanilla, ES modules) hébergée sur Netlify. **Aucun serveur backend.**
 
-- L'host se connecte à Spotify pour importer une **playlist** (uniquement les métadonnées : titre, artiste, pochette).
+- Le **host** se connecte à Spotify pour importer une **playlist** (uniquement les métadonnées : titre, artiste, pochette).
 - L'app cherche un **extrait audio de 30 s sur iTunes** (Apple Search API) pour chaque morceau. Aucune dépendance à Spotify Premium ou au Web Playback SDK.
-- Les joueurs rejoignent via un **code à 4 caractères** depuis leur téléphone.
-- L'audio est joué **uniquement côté host** (TV/PC).
-- Le scoring est automatique avec **matching tolérant** (accents, ponctuation, "feat. / remastered", etc.).
-- Le temps réel est géré par **Firebase Firestore** (+ Auth anonyme).
+- Les joueurs rejoignent via un **code à 6 caractères** (généré crypto) ou une URL `?code=ABC123` depuis leur téléphone.
+- L'**audio joue sur le host ET sur chaque joueur** (parties à distance Discord). Un seul clic "Activer le son" est requis dans le lobby pour débloquer la lecture sur mobile.
+- Le **scoring est calculé côté host** au moment du reveal (matching fuzzy : accents, ponctuation, "feat. / remastered" tolérés). Les joueurs n'écrivent jamais de score.
+- Le **temps réel** passe par **Firebase Firestore** (+ Auth anonyme).
+- Le **timer verrouille** automatiquement les réponses à 0 s : la room passe en status `locked`, les inputs joueurs se ferment, le host clique "Révéler" pour scorer et afficher la bonne réponse.
 
 ---
 
@@ -15,59 +16,74 @@ Web app privée de blind test entre potes. **Stack 100 % statique** (HTML/CSS/JS
 
 1. [Configuration Firebase](#1-configuration-firebase)
 2. [Configuration Spotify Developer](#2-configuration-spotify-developer)
-3. [Configuration GitHub Pages](#3-configuration-github-pages)
+3. [Déploiement Netlify](#3-déploiement-netlify)
 4. [Exemple `js/config.js`](#4-exemple-jsconfigjs)
-5. [Règles Firestore de développement](#5-règles-firestore-de-développement)
+5. [Règles Firestore (production)](#5-règles-firestore-production)
 6. [Lancer en local](#6-lancer-en-local)
 7. [Architecture des fichiers](#7-architecture-des-fichiers)
-8. [Limites connues](#8-limites-connues)
-9. [Plan d'amélioration](#9-plan-damélioration)
+8. [Modèle Firestore](#8-modèle-firestore)
+9. [Modèle de sécurité](#9-modèle-de-sécurité)
+10. [Limites connues](#10-limites-connues)
+11. [Plan d'amélioration](#11-plan-damélioration)
 
 ---
 
 ## 1. Configuration Firebase
 
-1. Va sur https://console.firebase.google.com → **Add project** → nom : `Blindie` (Analytics non requis).
-2. Dans le projet : **Build → Firestore Database → Create database**
-   - Location : `europe-west1` (Belgique) ou plus proche
-   - Démarre en **Production mode** (on fournira nos règles ci-dessous).
-3. **Build → Authentication → Get started → Sign-in method → Anonymous → Enable**.
-4. **Project Settings → General → Your apps → Web (`</>`)** → enregistre l'app "Blindie Web" → copie l'objet `firebaseConfig` qui apparaît.
+1. Va sur https://console.firebase.google.com → **Add project** → nom : `Blindie`.
+2. **Build → Firestore Database → Create database** :
+   - Édition : **Standard**
+   - Location : `eur3 (europe-west)` ou plus proche
+   - Démarre en **Production mode** — on déploiera nos propres règles (cf. §5).
+3. **Build → Authentication → Sign-in method → Anonymous → Enable**.
+4. **Project Settings → Your apps → Web (`</>`)** → enregistre l'app "Blindie Web" → copie l'objet `firebaseConfig`.
 5. Colle-le dans [`js/config.js`](js/config.js) (bloc `firebaseConfig`).
+6. Pousse les règles Firestore versionnées (cf. §5) :
+   - Soit via **Firebase Console → Firestore → Rules** : copier-coller le contenu de [`firestore.rules`](firestore.rules) puis **Publier**.
+   - Soit via Firebase CLI : `firebase deploy --only firestore:rules`.
 
-Les clés Firebase sont **publiques** par nature côté web : la sécurité repose entièrement sur les règles Firestore + Auth.
+> Les clés Firebase web sont **publiques** par nature — la sécurité repose entièrement sur les règles Firestore + Auth anonyme.
 
 ---
 
 ## 2. Configuration Spotify Developer
 
-1. Va sur https://developer.spotify.com/dashboard (connexion avec ton compte Spotify perso).
-2. **Create app**
+1. Va sur https://developer.spotify.com/dashboard.
+2. **Create app** :
    - Name : `Blindie`
-   - Description : `Blind test privé entre potes`
-   - **APIs used** : coche **Web API** (ne PAS cocher Web Playback SDK).
-   - **Redirect URIs** : ajoute les deux suivantes (sans trailing slash) :
+   - **APIs used** : cocher **Web API** uniquement (ne PAS cocher Web Playback SDK).
+   - **Redirect URIs** (ajouter les deux) :
      - `http://127.0.0.1:5500/host.html` (dev local)
-     - `https://TON_USER.github.io/TON_REPO/host.html` (prod GitHub Pages)
-3. Save → copie le **Client ID** (pas besoin du secret, on utilise PKCE).
-4. Colle-le dans [`js/config.js`](js/config.js) (bloc `spotifyConfig.clientId`) et adapte `spotifyConfig.redirectUri` à ton URL GitHub Pages.
+     - `https://blindie-app.netlify.app/host.html` (prod) — remplace par ta propre URL Netlify
+3. Save → copie le **Client ID** (pas besoin du secret, on utilise PKCE + state).
+4. Colle le Client ID dans [`js/config.js`](js/config.js) (`spotifyConfig.clientId`) et adapte `redirectUri` à ton URL Netlify.
 
-⚠ **Mode "Development"** : par défaut, ton app Spotify est privée. Tu peux ajouter jusqu'à **25 utilisateurs Spotify** dans **User Management**. Pour BLINDIE, seul l'host se connecte à Spotify donc 1 slot suffit (toi).
+> **Mode "Development"** : par défaut ton app Spotify est privée. Ajoute ton Spotify user dans **User Management** du dashboard (le développeur lui-même n'est pas auto-enrolled selon les comptes). Voir aussi §10 sur les comportements connus de l'API en dev mode.
 
 ---
 
-## 3. Configuration GitHub Pages
+## 3. Déploiement Netlify
 
-1. Push le repo sur GitHub (voir [Commandes Git](#commandes-git)).
-2. Repo settings : **Settings → Pages → Source → Deploy from a branch**
-3. Branch : **`main`** · Folder : **`/ (root)`** · **Save**.
-4. Attends 30-60 s, ton app sera disponible sur :
-   `https://TON_USER.github.io/TON_REPO/`
-5. **Mets cette URL exacte** dans :
-   - `spotifyConfig.redirectUri` de `js/config.js`
-   - les **Redirect URIs** du dashboard Spotify
+GitHub Pages ne supporte pas les repos privés en plan free → on utilise Netlify.
 
-Si tu utilises un repo nommé `TON_USER.github.io` (site utilisateur), l'URL est sans préfixe : `https://TON_USER.github.io/`.
+1. https://app.netlify.com → **Add new project → Import an existing project → Deploy with GitHub**.
+2. Sélectionne le repo `Adviseo/blindie`.
+3. Build settings :
+   - **Branch to deploy** : `main`
+   - **Build command** : *(vide)*
+   - **Publish directory** : `.` (laisse la valeur par défaut, repris depuis [`netlify.toml`](netlify.toml))
+4. **Deploy site**.
+5. (Optionnel) **Site settings → Change site name** → mets un slug stable (ex. `blindie-app`).
+
+Le fichier [`netlify.toml`](netlify.toml) configure les **headers de sécurité** appliqués automatiquement :
+
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Permissions-Policy` désactive caméra/micro/géoloc et opt-out FLoC/Topics.
+- **CSP** restrictive : autorise uniquement les domaines nécessaires (gstatic Firebase, accounts/api Spotify, iTunes, fonts Google, CDN d'images Spotify/iTunes).
+
+> Pour debug une CSP qui casse en prod, bascule temporairement la directive en `Content-Security-Policy-Report-Only` dans [`netlify.toml`](netlify.toml).
 
 ---
 
@@ -75,17 +91,17 @@ Si tu utilises un repo nommé `TON_USER.github.io` (site utilisateur), l'URL est
 
 ```js
 export const firebaseConfig = {
-  apiKey: "AIzaSyA...",
-  authDomain: "blindie-12345.firebaseapp.com",
-  projectId: "blindie-12345",
-  storageBucket: "blindie-12345.appspot.com",
-  messagingSenderId: "987654321",
-  appId: "1:987654321:web:abc123"
+  apiKey: "AIza...",
+  authDomain: "blindie-app.firebaseapp.com",
+  projectId: "blindie-app",
+  storageBucket: "blindie-app.firebasestorage.app",
+  messagingSenderId: "...",
+  appId: "..."
 };
 
 export const spotifyConfig = {
-  clientId: "abcdef0123456789abcdef0123456789",
-  redirectUri: "https://chrispernold.github.io/blindie/host.html",
+  clientId: "<ton client id>",
+  redirectUri: "https://blindie-app.netlify.app/host.html",
   scopes: [
     "playlist-read-private",
     "playlist-read-collaborative",
@@ -93,7 +109,7 @@ export const spotifyConfig = {
 };
 
 export const appConfig = {
-  baseUrl: "https://chrispernold.github.io/blindie",
+  baseUrl: "https://blindie-app.netlify.app",
   defaultRoundDurationSeconds: 30,
   pointsTitle: 1,
   pointsArtist: 1,
@@ -102,51 +118,30 @@ export const appConfig = {
 };
 ```
 
-> **Astuce :** quand l'app détecte un hostname `127.0.0.1` ou `localhost`, elle bascule automatiquement `redirectUri` et `baseUrl` sur l'URL locale. Tu n'as pas besoin de modifier ce fichier pour développer.
+> Quand l'app détecte un hostname `127.0.0.1`/`localhost`, elle bascule automatiquement `redirectUri` + `baseUrl` sur l'URL locale — pas besoin de toucher `config.js` pour tester.
 
 ---
 
-## 5. Règles Firestore de développement
+## 5. Règles Firestore (production)
 
-Dans **Firestore → Rules**, colle ceci. C'est suffisant pour un usage privé entre amis (toute personne authentifiée — donc tout visiteur anonyme — peut lire/écrire dans n'importe quelle room) :
+Les règles sont versionnées dans [`firestore.rules`](firestore.rules). Résumé :
 
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /rooms/{roomId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null
-                    && request.resource.data.hostId == request.auth.uid;
-      allow update, delete: if request.auth != null;
-
-      match /tracks/{trackId} {
-        allow read, write: if request.auth != null;
-      }
-      match /players/{playerId} {
-        allow read: if request.auth != null;
-        // Un joueur ne peut écrire que SON propre doc
-        allow write: if request.auth != null && request.auth.uid == playerId;
-      }
-      match /answers/{answerId} {
-        allow read: if request.auth != null;
-        // Un joueur ne peut écrire qu'une réponse à son nom
-        allow create, update: if request.auth != null
-                              && request.resource.data.playerId == request.auth.uid;
-        allow delete: if request.auth != null;
-      }
-    }
-  }
-}
-```
-
-Pour aller plus loin : tu pourrais restreindre les updates de `players.score` au seul host, restreindre la création de rooms à un allowlist, etc. — pas indispensable entre potes.
+- **Auth anonyme obligatoire** sur tout.
+- **`rooms/{roomId}`** : créer une room exige `hostId == request.auth.uid`. Update/delete = host seul.
+- **`rooms/{roomId}/tracks`** : lecture pour tout joueur authentifié (nécessaire pour jouer le `previewUrl`). Écriture host seul.
+- **`rooms/{roomId}/players/{playerId}`** :
+  - `playerId` doit être l'`uid` Auth du joueur.
+  - Le joueur n'écrit que `name`, `joinedAt`, `lastSeen` — **interdit de toucher `score`**.
+  - Le host peut tout modifier (notamment écrire `score` cumulé).
+- **`rooms/{roomId}/answers/{answerId}`** :
+  - Le joueur écrit uniquement `playerId, playerName, roundIndex, titleAnswer, artistAnswer, submittedAt`, et **uniquement** quand `room.status == "playing"` et que `roundIndex == currentRoundIndex`.
+  - Les champs `scoreTitle, scoreArtist, totalScore` sont écrits **par le host** au reveal.
 
 ---
 
 ## 6. Lancer en local
 
-Spotify exige une redirect URI en `https://...` **ou** sur `127.0.0.1`. Le plus simple est un serveur statique local sur le port `5500`.
+Spotify exige une redirect URI en `https://...` **ou** sur `127.0.0.1`. On utilise un serveur statique sur le port `5500`.
 
 **Option A — VS Code Live Server**
 1. Installe l'extension "Live Server" (Ritwick Dey).
@@ -164,94 +159,92 @@ python -m http.server 5500 --bind 127.0.0.1
 npx serve -l 5500
 ```
 
-> ⚠ Pour que les téléphones de tes potes accèdent à l'app **en local**, lance le serveur sur `0.0.0.0` (et non `127.0.0.1`), ouvre le port 5500 dans le pare-feu Windows, et donne-leur ton IP locale (`ipconfig`). En vrai c'est plus simple de déployer sur GitHub Pages.
-
 ---
 
 ## 7. Architecture des fichiers
 
 ```
-/index.html         Landing page (Créer / Rejoindre)
-/host.html          Vue host (PC/TV)
-/player.html        Vue joueur (téléphone)
-/css/styles.css     Design néon sombre
-/js/config.js       ⚠ À REMPLIR (Firebase, Spotify, app)
-/js/firebase.js     Init Firebase + Auth anonyme
-/js/spotify.js      OAuth PKCE + lecture playlist
-/js/previews.js     iTunes Search API (+ stub Deezer)
-/js/room.js         Toute la logique de room sur Firestore
-/js/utils.js        Normalisation texte + fuzzy match + helpers
-/js/host.js         Logique host (flow complet)
-/js/player.js       Logique joueur (téléphone)
-/README.md          Ce fichier
-/.gitignore         Fichiers à exclure du repo
+/index.html              Landing (Créer / Rejoindre)
+/host.html               Vue host (PC/TV)
+/player.html             Vue joueur (téléphone)
+/css/styles.css          Design néon sombre
+/firestore.rules         Règles Firestore versionnées (cf. §5)
+/netlify.toml            Build config + headers sécurité
+/js/config.js            ⚠ À REMPLIR (Firebase, Spotify, app)
+/js/firebase.js          Init Firebase + Auth anonyme
+/js/spotify.js           OAuth PKCE + state CSRF + lecture playlist
+/js/previews.js          iTunes Search API (+ stub Deezer)
+/js/room.js              Logique room/game sur Firestore
+/js/utils.js             Normalisation, fuzzy match, safeImageUrl, codes 6c
+/js/host.js              Logique host (flow complet, scoring au reveal)
+/js/player.js            Logique joueur (téléphone)
+/README.md               Ce fichier
+/.gitignore
 ```
 
-### Modèle Firestore
+## 8. Modèle Firestore
 
 ```
 rooms/{roomId}
-  roomId, joinCode, hostId, status, currentRoundIndex,
-  currentRoundStartedAt, revealedTrackId, createdAt,
-  settings: { roundDurationSeconds, pointsTitle, pointsArtist },
-  totalRounds
+  roomId, joinCode, hostId,
+  status: "lobby" | "playing" | "locked" | "reveal" | "finished",
+  currentRoundIndex, currentRoundStartedAt, revealedTrackId,
+  createdAt, totalRounds,
+  settings: { roundDurationSeconds, pointsTitle, pointsArtist }
 
 rooms/{roomId}/tracks/{trackId}
   order, spotifyId, title, artists[], album, imageUrl,
-  previewUrl, source:"itunes", playable,
+  previewUrl, source: "itunes", playable,
   normalizedTitle, normalizedArtists[]
 
-rooms/{roomId}/players/{playerId}
-  name, joinedAt, score, lastSeen
+rooms/{roomId}/players/{playerId}   (playerId == uid Auth)
+  name, joinedAt, lastSeen, score (écrit par le host uniquement)
 
 rooms/{roomId}/answers/{answerId}
   playerId, playerName, roundIndex,
   titleAnswer, artistAnswer, submittedAt,
-  scoreTitle, scoreArtist, totalScore
+  scoreTitle, scoreArtist, totalScore  (écrits par le host au reveal)
 ```
 
 ---
 
-## Commandes Git
+## 9. Modèle de sécurité
 
-```bash
-# 1. Init et premier commit (depuis D:\Claude\Blindie)
-git init
-git add .
-git commit -m "Initial commit: BLINDIE v1"
+Ce qui est défendu :
 
-# 2. Créer le repo GitHub (CLI authentifié requis)
-#    privé :
-gh repo create blindie --private --source=. --remote=origin --push
-#    ou public :
-gh repo create blindie --public  --source=. --remote=origin --push
+- **Manipulation du score côté joueur** : règles Firestore restreignent les champs écrivables par le joueur (`score` interdit sur `players`, champs `score*` interdits sur `answers`).
+- **Réponse après expiration du timer** : transition automatique vers status `locked` à 0 s. Toute écriture d'answer est rejetée côté règles (status check) ET côté code (`submitAnswer` vérifie aussi).
+- **Détournement OAuth Spotify** : flow PKCE + paramètre `state` aléatoire vérifié au callback.
+- **Injection XSS via URL externe** : toutes les images injectées via `innerHTML` passent par `safeImageUrl()` qui exige une URL `https://` parsable. `javascript:`, `data:`, `blob:`, `http:` sont rejetés.
+- **Headers sécurité** : nosniff, no-frame, CSP restrictive, permissions-policy.
 
-# 3. Activer GitHub Pages
-#    Settings → Pages → Deploy from branch → main → root → Save
-```
+Ce qui n'est PAS défendu (compromis assumés vu le contexte privé) :
+
+- Les `previewUrl` iTunes sont stockés dans Firestore : un joueur curieux qui inspecte le DOM ou Firestore peut voir l'URL. Ce n'est pas un anti-cheat compétitif.
+- Le joueur peut lire les titres/artistes des morceaux du round courant via l'API Firestore (nécessaire pour la lecture audio locale). On ne promet pas une partie 100 % anti-triche.
 
 ---
 
-## 8. Limites connues
+## 10. Limites connues
 
-- **Pas anti-triche.** Les `previewUrl` (iTunes) sont stockés dans Firestore. Un joueur curieux qui inspecte la base peut les voir. C'est privé entre amis, pas une compétition publique.
-- **Matching iTunes ≠ Spotify.** L'extrait joué peut être une autre version (remaster, live) du même morceau. Pour la grande majorité, c'est imperceptible.
-- **Previews iTunes manquantes.** Certains morceaux n'ont pas d'aperçu Apple — ils sont marqués "pas de preview" et exclus du jeu. Les playlists mainstream marchent mieux.
-- **Auto-play mobile.** iOS Safari peut refuser de lancer `audio.play()` sans interaction utilisateur. Sur l'host (qui clique pour lancer la partie), aucun souci. Sur les joueurs : on ne joue jamais d'audio, donc OK.
-- **Firestore en mode "tout authentifié".** Les règles fournies sont permissives. Acceptable entre amis.
-- **CORS Deezer.** Le fallback Deezer est un stub (l'API Deezer bloque CORS). Branchable via un proxy léger si besoin.
+- **Spotify Web API en Development mode** (nov. 2024) : la réponse de `/playlists/{id}` est partiellement strippée — les clés `tracks` et `track` sont renommées en `items` et `item`. Le code gère les deux. `/playlists/{id}/tracks` renvoie un 403 et est contourné via l'embedding.
+- **Playlists éditoriales Spotify** (préfixe `37i9dQZF1...`) inaccessibles aux apps en Development mode depuis nov. 2024. Utilise une playlist user-créée.
+- **iTunes ≠ Spotify** : l'extrait joué peut être une version (live/remaster) du même morceau. Imperceptible 95 % du temps.
+- **Previews iTunes manquantes** : certains morceaux n'ont pas d'aperçu Apple — ils sont marqués "pas de preview" et exclus du jeu.
+- **Autoplay audio mobile** : iOS/Android bloquent l'audio sans interaction. Un bouton "Activer le son" dans le lobby (et fallback en cas de late-join) débloque la session.
+- **CORS Deezer** : le fallback Deezer reste un stub (CORS bloque les appels directs). Brancher via un proxy serverless si besoin.
 
 ---
 
-## 9. Plan d'amélioration
+## 11. Plan d'amélioration
 
-- [ ] Validation manuelle optionnelle par le host (toggle dans les settings)
+- [ ] Tests d'intégration Firestore via émulateur (`firebase emulators:start`)
+- [ ] CSP avec nonces au lieu de `'unsafe-inline'`
 - [ ] Bonus de rapidité au premier à trouver
-- [ ] Playlists pré-configurées (thèmes : années 80, FR, etc.)
 - [ ] Choix de la durée du round dans l'UI host
-- [ ] Mode "auto-reveal" à la fin du timer
-- [ ] Statistiques de partie (rounds les plus difficiles, etc.)
-- [ ] PWA installable (offline shell)
-- [ ] Deezer fallback via proxy serverless (Cloudflare Worker)
+- [ ] Reveal automatique X secondes après la fin du timer
+- [ ] PWA installable (manifest + service worker)
+- [ ] Deezer fallback via Cloudflare Worker
 - [ ] Animation de confettis sur bonne réponse
-- [ ] Effets sonores host (countdown, reveal)
+- [ ] Sound effects host (countdown, reveal)
+- [ ] Rate-limit côté Firestore via Cloud Functions si l'app s'ouvre au public

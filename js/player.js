@@ -9,7 +9,7 @@ import {
 import { doc, getDoc, query, where, limit, getDocs, collection } from
   "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { db } from './firebase.js';
-import { escapeHtml, formatArtists } from './utils.js';
+import { escapeHtml, formatArtists, safeImageUrl } from './utils.js';
 import { appConfig } from './config.js';
 
 const $ = id => document.getElementById(id);
@@ -69,7 +69,7 @@ const state = {
 
 function askForJoin(prefillCode) {
   showState('join');
-  if (prefillCode) $('join-code-in').value = prefillCode.toUpperCase().slice(0, 4);
+  if (prefillCode) $('join-code-in').value = prefillCode.toUpperCase().slice(0, 6);
   $('join-name-in').value = localStorage.getItem('blindie.lastName') || '';
 
   $('join-code-in').addEventListener('input', e => {
@@ -79,7 +79,7 @@ function askForJoin(prefillCode) {
   $('btn-join').addEventListener('click', async () => {
     const code = $('join-code-in').value.trim();
     const name = $('join-name-in').value.trim();
-    if (code.length !== 4) return showJoinError("Code à 4 caractères.");
+    if (code.length !== 6) return showJoinError("Code à 6 caractères.");
     if (!name) return showJoinError("Pseudo manquant.");
     try {
       const ok = await roomExists(code);
@@ -160,6 +160,23 @@ async function handleRoomUpdate(room) {
       $('play-round').textContent = room.currentRoundIndex + 1;
       break;
 
+    case 'locked':
+      // Timer expiré côté host. Audio coupé, formulaire désactivé,
+      // bandeau visuel pour signaler l'attente du reveal.
+      stopTimer();
+      stopLocalAudio();
+      showState('playing');
+      $('play-round').textContent = room.currentRoundIndex + 1;
+      $('play-timer').textContent = '🔒';
+      $('play-timer').classList.add('danger');
+      $('answer-title').disabled = true;
+      $('answer-artist').disabled = true;
+      $('btn-submit').disabled = true;
+      $('btn-submit').textContent = '🔒 Verrouillé';
+      $('submit-feedback').classList.remove('hidden');
+      $('submit-feedback').textContent = '⏳ Temps écoulé — en attente du reveal…';
+      break;
+
     case 'reveal':
       stopTimer();
       stopLocalAudio();
@@ -218,10 +235,6 @@ function medal(i) { return i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉
 
 // === Submit answer ===
 $('btn-submit').addEventListener('click', async () => {
-  if (!state.currentTrackPublic) {
-    showJoinError("Round non encore chargé, attends 1s.");
-    return;
-  }
   const title = $('answer-title').value.trim();
   const artist = $('answer-artist').value.trim();
   if (!title && !artist) {
@@ -231,9 +244,13 @@ $('btn-submit').addEventListener('click', async () => {
   $('btn-submit').disabled = true;
   $('btn-submit').textContent = '✓ Envoyé !';
   try {
+    // On ne passe PLUS le track : le scoring est fait par le host au reveal.
+    // Le client n'écrit que la réponse brute. Si la room n'est plus en
+    // "playing" (timer expiré -> locked), submitAnswer côté room.js refuse
+    // et Firestore rules refuse aussi.
     await submitAnswer(
       state.roomId, state.uid, state.name,
-      state.currentRoundIndex, state.currentTrackPublic,
+      state.currentRoundIndex,
       { titleAnswer: title, artistAnswer: artist }
     );
     state.hasSubmittedThisRound = true;
@@ -269,9 +286,13 @@ function flashFeedback(msg, isError) {
 function resetAnswerForm() {
   $('answer-title').value = '';
   $('answer-artist').value = '';
+  $('answer-title').disabled = false;
+  $('answer-artist').disabled = false;
   $('submit-feedback').classList.add('hidden');
   $('btn-submit').disabled = false;
   $('btn-submit').textContent = '🚨 ENVOYER';
+  // Reset timer cosmetics au cas où on revient de "locked"
+  $('play-timer').classList.remove('danger');
 }
 
 // === Timer (synced from server timestamp) ===
@@ -309,7 +330,8 @@ async function renderReveal(room) {
   $('reveal-title').textContent = track.title;
   $('reveal-artist').textContent = formatArtists(track.artists);
   const art = $('reveal-art');
-  art.innerHTML = track.imageUrl ? `<img src="${track.imageUrl}" alt="">` : '🎵';
+  const safeImg = safeImageUrl(track.imageUrl);
+  art.innerHTML = safeImg ? `<img src="${safeImg}" alt="">` : '🎵';
 
   // My result this round
   const myAnsRef = await findMyAnswerForRound(room.currentRoundIndex);
@@ -352,6 +374,11 @@ async function findMyAnswerForRound(roundIndex) {
 $('btn-leave').addEventListener('click', async () => {
   if (!confirm("Quitter la partie ?")) return;
   await leaveRoom(state.roomId, state.uid).catch(() => {});
+  sessionStorage.clear();
+  window.location.href = './index.html';
+});
+
+$('btn-back-home-player').addEventListener('click', () => {
   sessionStorage.clear();
   window.location.href = './index.html';
 });

@@ -10,7 +10,8 @@ const TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const API = 'https://api.spotify.com/v1';
 
 const VERIFIER_KEY = 'blindie.spotify.verifier';
-const TOKEN_KEY = 'blindie.spotify.token';
+const STATE_KEY    = 'blindie.spotify.state';
+const TOKEN_KEY    = 'blindie.spotify.token';
 
 // ===================================================================
 // PKCE helpers
@@ -45,7 +46,11 @@ export async function generateCodeChallenge(verifier) {
 export async function loginWithSpotify() {
   const verifier = generateCodeVerifier();
   const challenge = await generateCodeChallenge(verifier);
+  // Le `state` protège contre les CSRF sur le callback OAuth : Spotify nous
+  // le renvoie tel quel, on vérifie qu'il match avant d'échanger le code.
+  const state = generateCodeVerifier(32);
   sessionStorage.setItem(VERIFIER_KEY, verifier);
+  sessionStorage.setItem(STATE_KEY, state);
 
   const params = new URLSearchParams({
     response_type: 'code',
@@ -54,6 +59,7 @@ export async function loginWithSpotify() {
     redirect_uri: spotifyConfig.redirectUri,
     code_challenge_method: 'S256',
     code_challenge: challenge,
+    state,
   });
   window.location.href = `${AUTH_URL}?${params.toString()}`;
 }
@@ -64,9 +70,20 @@ export async function loginWithSpotify() {
 export async function handleSpotifyCallback() {
   const url = new URL(window.location.href);
   const code = url.searchParams.get('code');
+  const stateParam = url.searchParams.get('state');
   const error = url.searchParams.get('error');
   if (error) throw new Error(`Spotify a refusé : ${error}`);
   if (!code) return false;
+
+  // CSRF check : le state reçu doit correspondre à celui qu'on a généré
+  // avant la redirection.
+  const expectedState = sessionStorage.getItem(STATE_KEY);
+  if (!expectedState || expectedState !== stateParam) {
+    sessionStorage.removeItem(STATE_KEY);
+    sessionStorage.removeItem(VERIFIER_KEY);
+    throw new Error("State OAuth invalide — relance le login.");
+  }
+  sessionStorage.removeItem(STATE_KEY);
 
   const verifier = sessionStorage.getItem(VERIFIER_KEY);
   if (!verifier) throw new Error("Code verifier perdu — relance le login.");
@@ -86,6 +103,7 @@ export async function handleSpotifyCallback() {
   if (!r.ok) throw new Error(`Token exchange failed (${r.status})`);
   const data = await r.json();
   storeToken(data);
+  sessionStorage.removeItem(VERIFIER_KEY);
 
   // Clean the URL so refresh doesn't re-use the code (codes are one-shot).
   url.searchParams.delete('code');
@@ -145,6 +163,7 @@ export function isLoggedIn() {
 export function logout() {
   sessionStorage.removeItem(TOKEN_KEY);
   sessionStorage.removeItem(VERIFIER_KEY);
+  sessionStorage.removeItem(STATE_KEY);
 }
 
 // ===================================================================

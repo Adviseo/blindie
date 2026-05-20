@@ -1,0 +1,146 @@
+// BLINDIE — Firestore security rules (production)
+//
+// Modèle :
+//   - rooms/{roomId}                    : doc principal, hostId = uid Auth du host
+//   - rooms/{roomId}/tracks/{trackId}   : playlist enrichie iTunes (host-only en écriture)
+//   - rooms/{roomId}/players/{playerId} : 1 doc par joueur, playerId == uid Auth
+//   - rooms/{roomId}/answers/{answerId} : 1 doc par (joueur, round)
+//
+// Principes :
+//   - Auth anonyme obligatoire pour TOUT.
+//   - Host (= request.auth.uid == room.hostId) a tous les droits sur sa room.
+//   - Joueur ne peut écrire QUE ses champs autorisés, et UNIQUEMENT pendant
+//     que la room est en status "playing" sur le bon round.
+//   - Joueur ne peut JAMAIS écrire un champ score* — c'est le host qui scor.
+//
+// Statuts de room : "lobby" | "playing" | "locked" | "reveal" | "finished"
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /rooms/{roomId} {
+
+      // ----- Helpers -----
+      function isAuthed()     { return request.auth != null; }
+      function roomData()     { return resource.data; }
+      function isHost()       { return isAuthed() && resource.data.hostId == request.auth.uid; }
+      function isHostOnNew()  { return isAuthed() && request.resource.data.hostId == request.auth.uid; }
+
+      // ----- /rooms/{roomId} -----
+      allow read:   if isAuthed();
+      // À la création, hostId DOIT == request.auth.uid + champs minimaux requis
+      allow create: if isHostOnNew()
+                    && request.resource.data.status == 'lobby'
+                    && request.resource.data.roomId == roomId
+                    && request.resource.data.joinCode == roomId;
+      // Update / delete : seul le host de la room
+      allow update, delete: if isHost();
+
+      // ===================================================================
+      // tracks : la playlist enrichie iTunes. Lecture OK pour tous les
+      // joueurs authentifiés (pour jouer le previewUrl en local). Écriture
+      // uniquement par le host de la room.
+      // ===================================================================
+      match /tracks/{trackId} {
+        function parentRoom() {
+          return get(/databases/$(database)/documents/rooms/$(roomId)).data;
+        }
+        function isHostHere() {
+          return request.auth != null && parentRoom().hostId == request.auth.uid;
+        }
+
+        allow read: if request.auth != null;
+        allow create, update, delete: if isHostHere();
+      }
+
+      // ===================================================================
+      // players : 1 doc par joueur. ID du doc = uid Auth du joueur.
+      //   - Joueur s'inscrit lui-même (create/update sur ses champs autorisés)
+      //   - Joueur ne peut PAS toucher au champ `score`
+      //   - Host peut tout modifier (notamment écrire `score` cumulé)
+      //   - Delete : le joueur lui-même ou le host
+      // ===================================================================
+      match /players/{playerId} {
+        function parentRoom() {
+          return get(/databases/$(database)/documents/rooms/$(roomId)).data;
+        }
+        function isHostHere() {
+          return request.auth != null && parentRoom().hostId == request.auth.uid;
+        }
+        function isSelf() {
+          return request.auth != null && request.auth.uid == playerId;
+        }
+        // Champs autorisés au joueur (anti-élévation de score)
+        function playerAllowedFields() {
+          return request.resource.data.keys().hasOnly(['name', 'joinedAt', 'lastSeen']);
+        }
+
+        allow read: if request.auth != null;
+
+        // Création par le joueur : uniquement les champs autorisés
+        allow create: if isSelf() && playerAllowedFields();
+
+        // Update : soit le joueur (sans toucher au score), soit le host
+        allow update: if (isSelf() && playerAllowedFields())
+                      || isHostHere();
+
+        // Suppression : self-leave ou kick par le host
+        allow delete: if isSelf() || isHostHere();
+      }
+
+      // ===================================================================
+      // answers : 1 doc par (joueur, round).
+      //   - Joueur n'écrit QUE sa réponse brute (sans champs score*),
+      //     UNIQUEMENT pendant status == "playing" + bon currentRoundIndex
+      //   - Host peut tout (notamment écrire les scoreTitle/scoreArtist/totalScore
+      //     au moment du reveal, ou supprimer)
+      // ===================================================================
+      match /answers/{answerId} {
+        function parentRoom() {
+          return get(/databases/$(database)/documents/rooms/$(roomId)).data;
+        }
+        function isHostHere() {
+          return request.auth != null && parentRoom().hostId == request.auth.uid;
+        }
+        function gameIsOpenForAnswers() {
+          let r = parentRoom();
+          return r.status == 'playing'
+                 && request.resource.data.roundIndex == r.currentRoundIndex;
+        }
+        function isOwnAnswer() {
+          return request.auth != null
+                 && request.resource.data.playerId == request.auth.uid;
+        }
+        // Champs autorisés au joueur : pas de champs score*
+        function playerAnswerFields() {
+          return request.resource.data.keys().hasOnly([
+            'playerId', 'playerName', 'roundIndex',
+            'titleAnswer', 'artistAnswer', 'submittedAt'
+          ]);
+        }
+
+        allow read: if request.auth != null;
+
+        // Le joueur crée/replace son answer pour le round courant ouvert
+        allow create: if isOwnAnswer()
+                      && playerAnswerFields()
+                      && gameIsOpenForAnswers();
+
+        // Update : soit le joueur réécrit sa réponse (même contraintes),
+        // soit le host ajoute les scores ou modifie quelconque champ.
+        allow update: if (
+                        isOwnAnswer()
+                        && playerAnswerFields()
+                        && gameIsOpenForAnswers()
+                        && resource.data.playerId == request.auth.uid
+                      )
+                      || isHostHere();
+
+        // Delete : host uniquement
+        allow delete: if isHostHere();
+      }
+    }
+  }
+}

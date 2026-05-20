@@ -24,11 +24,18 @@ const answersCol = (roomId) => collection(db, 'rooms', roomId, 'answers');
 // Room creation / lookup
 // ===================================================================
 
-// Creates a new room owned by hostId. Picks a 4-char joinCode that is also
-// used as the document ID (collisions are retried).
+// Creates a new room owned by hostId. Picks a 6-char joinCode (cryptographic
+// random) that is also used as the document ID (collisions are retried).
+//
+// Statuts possibles d'une room :
+//   - "lobby"    : en attente des joueurs
+//   - "playing"  : round en cours, les joueurs peuvent répondre
+//   - "locked"   : round terminé (timer écoulé ou stop manuel), réponses fermées
+//   - "reveal"   : le host a révélé la réponse, les scores sont affichés
+//   - "finished" : partie terminée, podium
 export async function createRoom(hostId) {
   for (let attempt = 0; attempt < 8; attempt++) {
-    const code = generateJoinCode(4);
+    const code = generateJoinCode(6);
     const ref = roomDoc(code);
     const snap = await getDoc(ref);
     if (snap.exists()) continue;
@@ -104,11 +111,13 @@ export async function fetchTrackByOrder(roomId, order) {
 
 // A joining player creates their own player doc using their Firebase Auth
 // uid (so listenRoom can identify them later).
+// Note : on n'écrit PAS `score` ici — les règles Firestore interdisent au
+// joueur de toucher à ce champ. Firestore traite undefined comme 0 et
+// `increment()` côté host créera le champ automatiquement.
 export async function joinRoom(roomId, playerId, playerName) {
   await setDoc(playerDoc(roomId, playerId), {
     name: playerName,
     joinedAt: serverTimestamp(),
-    score: 0,
     lastSeen: serverTimestamp(),
   }, { merge: true });
 }
@@ -168,6 +177,12 @@ export async function startRound(roomId, roundIndex) {
   });
 }
 
+// Verrouille le round : plus aucune réponse n'est acceptée (côté règles
+// Firestore comme côté UI), mais le host peut encore révéler.
+export async function lockRound(roomId) {
+  await updateDoc(roomDoc(roomId), { status: 'locked' });
+}
+
 export async function revealRound(roomId, trackId) {
   await updateDoc(roomDoc(roomId), {
     status: 'reveal',
@@ -187,9 +202,9 @@ export async function endGame(roomId) {
 // Answers + scoring
 // ===================================================================
 
-// Scoring is computed on submit (fuzzy match against the track's title and
-// artists). Players see "answer sent" until reveal time, when the host UI
-// reveals the right answer and the per-player breakdown.
+// Fuzzy scoring d'une réponse contre un track. Fonction pure, sans I/O.
+// Utilisée côté host uniquement (scoreRound). Le joueur n'écrit JAMAIS de
+// score — c'est interdit par les règles Firestore.
 export function calculateScore(answer, track, settings) {
   const pointsTitle = settings?.pointsTitle ?? appConfig.pointsTitle;
   const pointsArtist = settings?.pointsArtist ?? appConfig.pointsArtist;
@@ -211,19 +226,17 @@ export function calculateScore(answer, track, settings) {
   return { scoreTitle, scoreArtist, totalScore: scoreTitle + scoreArtist };
 }
 
-// Submit a player's answer for the current round. Computes the score
-// immediately, persists it, and bumps the player's cumulative score.
+// Submit a player's answer for the current round.
+// Le joueur n'écrit QUE sa réponse brute — pas de score. Le scoring est
+// effectué côté host au moment du reveal (cf. scoreRound).
 //
-// Re-submission: if the player already submitted for this round, we
-// REPLACE their previous answer and adjust the cumulative score by the
-// delta — so they can change their mind until reveal without double-counting.
-export async function submitAnswer(roomId, playerId, playerName, roundIndex, track, answer) {
+// Re-submission : si le joueur a déjà répondu pour ce round, on remplace.
+// Idempotent côté score puisqu'aucun score n'est écrit ici.
+export async function submitAnswer(roomId, playerId, playerName, roundIndex, answer) {
   const room = await getRoom(roomId);
   if (!room) throw new Error("Room introuvable.");
-  if (room.status !== 'playing') throw new Error("Tu ne peux plus répondre pour ce round.");
+  if (room.status !== 'playing') throw new Error("Round verrouillé, réponses fermées.");
   if (room.currentRoundIndex !== roundIndex) throw new Error("Round désynchronisé.");
-
-  const scoreParts = calculateScore(answer, track, room.settings);
 
   // Look up any existing answer for this player + round.
   const q = query(
@@ -241,22 +254,46 @@ export async function submitAnswer(roomId, playerId, playerName, roundIndex, tra
     titleAnswer: (answer.titleAnswer || '').trim(),
     artistAnswer: (answer.artistAnswer || '').trim(),
     submittedAt: serverTimestamp(),
-    scoreTitle: scoreParts.scoreTitle,
-    scoreArtist: scoreParts.scoreArtist,
-    totalScore: scoreParts.totalScore,
   };
 
   if (existing.empty) {
     await addDoc(answersCol(roomId), payload);
-    await updatePlayerScore(roomId, playerId, scoreParts.totalScore);
   } else {
     const ref = existing.docs[0].ref;
-    const prev = existing.docs[0].data();
     await setDoc(ref, payload, { merge: false });
-    const delta = scoreParts.totalScore - (prev.totalScore || 0);
-    if (delta !== 0) await updatePlayerScore(roomId, playerId, delta);
   }
-  return scoreParts;
+}
+
+// Score tous les answers d'un round et met à jour les scores cumulés des
+// joueurs. Appelée par le host lors du reveal. Idempotente :
+//   - on (re)calcule chaque answer
+//   - on ajuste le score cumulé par DELTA : nouveauScore - ancienScore
+//     (qui sera 0 si déjà scoré, donc pas de double comptage)
+//
+// `answers` doit être la liste actuelle des docs Firestore du round
+// (depuis listenAnswers / getDocs sur la collection).
+export async function scoreRound(roomId, roundIndex, track, answers, settings) {
+  for (const ans of answers) {
+    const newScores = calculateScore(
+      { titleAnswer: ans.titleAnswer, artistAnswer: ans.artistAnswer },
+      track,
+      settings,
+    );
+    const previousTotal = ans.totalScore || 0;
+    const delta = newScores.totalScore - previousTotal;
+
+    // Met à jour la réponse avec les scores calculés
+    await updateDoc(doc(answersCol(roomId), ans.id), {
+      scoreTitle: newScores.scoreTitle,
+      scoreArtist: newScores.scoreArtist,
+      totalScore: newScores.totalScore,
+    });
+
+    // Ajuste le score cumulé du joueur
+    if (delta !== 0) {
+      await updatePlayerScore(roomId, ans.playerId, delta);
+    }
+  }
 }
 
 // ===================================================================

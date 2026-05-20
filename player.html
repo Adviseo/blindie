@@ -13,13 +13,13 @@
   <main class="screen">
     <div class="row" style="width:100%; max-width:480px; justify-content:space-between; align-items:center;">
       <div class="logo" style="font-size: 1.8rem; line-height:1;">BLINDIE</div>
-      <span id="room-tag" class="tag">····</span>
+      <span id="room-tag" class="tag">······</span>
     </div>
 
     <!-- Join (when no session yet) -->
     <section id="state-join" class="card hidden">
       <h2>Rejoindre une partie</h2>
-      <input id="join-code-in" type="text" class="input-code" maxlength="4" placeholder="CODE" autocomplete="off">
+      <input id="join-code-in" type="text" class="input-code" maxlength="6" placeholder="CODE" autocomplete="off">
       <input id="join-name-in" type="text" placeholder="Ton pseudo" maxlength="16" autocomplete="off" style="margin-top:0.7rem;">
       <button id="btn-join" class="btn btn-primary" style="margin-top:0.7rem;">Rejoindre</button>
       <div id="join-error" class="error hidden"></div>
@@ -97,7 +97,7 @@
     <section id="state-finished" class="card hidden">
       <h1 class="center" style="font-family: 'Bebas Neue'; font-size: 2.5rem; color: var(--neon-yellow); text-shadow: 0 0 30px rgba(255,214,10,0.5);">🏆 FINI 🏆</h1>
       <div id="final-scoreboard" class="scoreboard" style="margin-top:1.5rem;"></div>
-      <button onclick="window.location.href='./index.html'" class="btn btn-primary" style="margin-top:1.5rem;">
+      <button id="btn-back-home-player" class="btn btn-primary" style="margin-top:1.5rem;">
         🏠 Retour à l'accueil
       </button>
     </section>

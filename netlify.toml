@@ -1,0 +1,31 @@
+# BLINDIE — Netlify config
+# Build statique : aucun build step, on sert le repo tel quel.
+
+[build]
+  publish = "."
+
+# ---------------------------------------------------------------------------
+# Security headers
+# ---------------------------------------------------------------------------
+# CSP "pragmatique" :
+#   - script-src/style-src incluent 'unsafe-inline' car index.html embarque
+#     un <script type="module"> inline et plusieurs styles inline. On
+#     pourra migrer vers des nonces plus tard si besoin.
+#   - connect-src couvre Firestore, Firebase Auth, Spotify (auth + API),
+#     iTunes Search, et l'origin self.
+#   - media-src couvre les previews iTunes (audio-ssl.itunes.apple.com et
+#     les CDN mzstatic).
+#   - img-src couvre les pochettes Spotify (i.scdn.co, mosaic.scdn.co) et
+#     iTunes (*.mzstatic.com).
+#
+# Si besoin de debug, basculer "Content-Security-Policy" → "Content-Security-Policy-Report-Only"
+# pour observer sans bloquer.
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), interest-cohort=(), browsing-topics=()"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com; script-src-elem 'self' 'unsafe-inline' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https://i.scdn.co https://mosaic.scdn.co https://image-cdn-ak.spotifycdn.com https://image-cdn-fa.spotifycdn.com https://*.mzstatic.com; media-src 'self' https://*.mzstatic.com https://*.itunes.apple.com https://audio-ssl.itunes.apple.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://accounts.spotify.com https://api.spotify.com https://itunes.apple.com; frame-src https://accounts.spotify.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://accounts.spotify.com;"

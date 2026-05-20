@@ -28,7 +28,7 @@
           <hr style="flex:1; border:none; border-top:1px solid rgba(255,255,255,0.1);">
         </div>
 
-        <input id="join-code" type="text" class="input-code" maxlength="4"
+        <input id="join-code" type="text" class="input-code" maxlength="6"
                placeholder="CODE" autocomplete="off" inputmode="text">
         <input id="join-name" type="text" placeholder="Ton pseudo" maxlength="16" autocomplete="off">
         <button id="btn-join" class="btn btn-secondary">
@@ -53,10 +53,10 @@
     const nameInput = document.getElementById('join-name');
     const errorEl = document.getElementById('error');
 
-    // Pre-fill the join code from URL ?code=XXXX (so a shared URL works).
+    // Pre-fill the join code from URL ?code=XXXXXX (so a shared URL works).
     const params = new URLSearchParams(window.location.search);
     const urlCode = params.get('code');
-    if (urlCode) codeInput.value = urlCode.toUpperCase().slice(0, 4);
+    if (urlCode) codeInput.value = urlCode.toUpperCase().slice(0, 6);
 
     codeInput.addEventListener('input', e => {
       e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -76,7 +76,7 @@
       clearError();
       const code = codeInput.value.trim().toUpperCase();
       const name = nameInput.value.trim();
-      if (code.length !== 4) return showError("Code à 4 caractères.");
+      if (code.length !== 6) return showError("Code à 6 caractères.");
       if (!name) return showError("Choisis un pseudo.");
       if (name.length > 16) return showError("Pseudo trop long (16 max).");
 

@@ -79,14 +79,34 @@ export function isMatch(expected, candidate, threshold = 0.75) {
 }
 
 // === Random codes ===
-// 4-char code avoiding visually ambiguous chars (no 0/O, 1/I, etc.)
-export function generateJoinCode(len = 4) {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+// Code de 6 caractères, alphabet sans caractères ambigus (no 0/O, 1/I, etc.).
+// Génération via crypto.getRandomValues — pas Math.random — pour éviter les
+// collisions/devinabilité avec un PRNG faible.
+export function generateJoinCode(len = 6) {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars
+  const bytes = new Uint8Array(len);
+  crypto.getRandomValues(bytes);
   let out = '';
   for (let i = 0; i < len; i++) {
-    out += alphabet[Math.floor(Math.random() * alphabet.length)];
+    // Mod 32 = parfaitement uniforme car 256 % 32 == 0.
+    out += alphabet[bytes[i] % alphabet.length];
   }
   return out;
+}
+
+// === URL safety ===
+// Renvoie l'URL si c'est une https:// well-formed, sinon null.
+// À utiliser avant d'injecter une URL externe dans innerHTML (<img src=...>).
+// Bloque javascript:, data:, blob:, http:, etc.
+export function safeImageUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
 }
 
 // === Misc ===

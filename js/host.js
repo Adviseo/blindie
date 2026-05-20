@@ -17,10 +17,10 @@ import {
 import { enrichTracksWithPreviews } from './previews.js';
 import {
   createRoom, addTracksToRoom, fetchRoomTracks,
-  startGame, startRound, revealRound, nextRound, endGame,
-  listenPlayers, listenAnswers, deleteRoom,
+  startGame, startRound, lockRound, revealRound, nextRound, endGame,
+  scoreRound, listenPlayers, listenAnswers, deleteRoom,
 } from './room.js';
-import { escapeHtml, formatArtists } from './utils.js';
+import { escapeHtml, formatArtists, safeImageUrl } from './utils.js';
 import { appConfig } from './config.js';
 
 const $ = id => document.getElementById(id);
@@ -106,7 +106,10 @@ $('btn-load-playlist').addEventListener('click', async () => {
     if (meta) {
       $('playlist-meta-block').classList.remove('hidden');
       $('playlist-meta').innerHTML = `
-        ${meta.images?.[0]?.url ? `<img src="${meta.images[0].url}" alt="">` : ''}
+        ${(() => {
+          const u = safeImageUrl(meta.images?.[0]?.url);
+          return u ? `<img src="${u}" alt="">` : '';
+        })()}
         <div class="meta-info">
           <strong>${escapeHtml(meta.name)}</strong><br>
           <small>par ${escapeHtml(meta.owner?.display_name || '?')} · ${meta.tracks?.total ?? meta.items?.total ?? '?'} morceaux</small>
@@ -271,6 +274,9 @@ async function playRound() {
   art.innerHTML = '';
   $('answers').innerHTML = '<p class="muted">En attente des buzz…</p>';
   $('answer-count').textContent = '0';
+  // Reset le bouton de fin de round à son libellé initial
+  $('btn-stop-audio').textContent = '⏹ Stop & révéler';
+  $('btn-stop-audio').disabled = false;
 
   // Audio (host-only)
   if (state.audio) { state.audio.pause(); state.audio = null; }
@@ -297,13 +303,20 @@ function startTimer(seconds) {
   let remaining = seconds;
   $('timer').textContent = remaining;
   $('timer').classList.remove('danger');
-  state.timerInterval = setInterval(() => {
+  state.timerInterval = setInterval(async () => {
     remaining--;
     $('timer').textContent = Math.max(0, remaining);
     if (remaining <= 5) $('timer').classList.add('danger');
     if (remaining <= 0) {
       clearInterval(state.timerInterval);
       if (state.audio) state.audio.pause();
+      // Verrouille automatiquement la room : les joueurs ne peuvent plus
+      // répondre. Le host clique ensuite sur "Révéler" pour scorer + reveal.
+      try {
+        await lockRound(state.roomId);
+      } catch (e) { console.warn('Lock failed', e); }
+      // Le bouton change de libellé pour refléter l'état "locked"
+      $('btn-stop-audio').textContent = '🎯 Révéler';
     }
   }, 1000);
 }
@@ -315,10 +328,32 @@ $('btn-replay').addEventListener('click', () => {
 });
 
 $('btn-stop-audio').addEventListener('click', async () => {
+  // Flow unifié : que ce soit un stop anticipé ("playing") ou un click
+  // après que le timer ait expiré ("locked"), on lock + score + reveal.
   if (state.audio) state.audio.pause();
   clearInterval(state.timerInterval);
-  await revealRound(state.roomId, state.currentTrack.id);
-  doReveal();
+  $('btn-stop-audio').disabled = true;
+  try {
+    // Lock si pas déjà fait (stop anticipé). Idempotent : si la room est
+    // déjà "locked", c'est un no-op côté Firestore.
+    await lockRound(state.roomId);
+    // Score toutes les réponses avant de révéler.
+    await scoreRound(
+      state.roomId,
+      state.roundIndex,
+      state.currentTrack,
+      state.answers,
+      { pointsTitle: appConfig.pointsTitle, pointsArtist: appConfig.pointsArtist },
+    );
+    await revealRound(state.roomId, state.currentTrack.id);
+    doReveal();
+  } catch (e) {
+    console.error(e);
+    alert("Erreur pendant le reveal : " + e.message);
+  } finally {
+    $('btn-stop-audio').disabled = false;
+    $('btn-stop-audio').textContent = '⏹ Stop & révéler';
+  }
 });
 
 function renderLiveAnswers() {
@@ -350,9 +385,8 @@ function doReveal() {
   $('reveal-artist').textContent = formatArtists(state.currentTrack.artists);
   const art = $('reveal-art');
   art.className = 'album-art';
-  art.innerHTML = state.currentTrack.imageUrl
-    ? `<img src="${state.currentTrack.imageUrl}" alt="">`
-    : '🎵';
+  const revealImg = safeImageUrl(state.currentTrack.imageUrl);
+  art.innerHTML = revealImg ? `<img src="${revealImg}" alt="">` : '🎵';
 
   renderRevealAnswers();
 }
@@ -437,6 +471,10 @@ function showError(id, msg) {
   el.classList.remove('hidden');
 }
 function hideError(id) { $(id).classList.add('hidden'); }
+
+$('btn-back-home-host').addEventListener('click', () => {
+  window.location.href = './index.html';
+});
 
 // Click-to-copy on room code & join URL
 $('room-code').addEventListener('click', () => {
