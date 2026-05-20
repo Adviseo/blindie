@@ -109,7 +109,7 @@ $('btn-load-playlist').addEventListener('click', async () => {
         ${meta.images?.[0]?.url ? `<img src="${meta.images[0].url}" alt="">` : ''}
         <div class="meta-info">
           <strong>${escapeHtml(meta.name)}</strong><br>
-          <small>par ${escapeHtml(meta.owner?.display_name || '?')} · ${meta.tracks?.total ?? '?'} morceaux</small>
+          <small>par ${escapeHtml(meta.owner?.display_name || '?')} · ${meta.tracks?.total ?? meta.items?.total ?? '?'} morceaux</small>
         </div>
       `;
     }

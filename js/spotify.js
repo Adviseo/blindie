@@ -205,34 +205,31 @@ export function parseSpotifyPlaylistUrl(input) {
 // Returns an array of normalized track objects:
 //   { id, name, artists: string[], album, image, durationMs }
 export async function fetchSpotifyPlaylistTracks(playlistId) {
-  // L'endpoint /playlists/{id}/tracks renvoie parfois un 403 mystérieux
-  // (même pour une playlist privée de l'user logué). On utilise l'endpoint
-  // principal /playlists/{id} qui embarque déjà la première page (jusqu'à
-  // 100 morceaux) — largement suffisant pour un blind test entre potes.
+  // Spotify a deux comportements pour /playlists/{id} :
+  //   - Apps avec Extended Access : renvoie { tracks: { items: [...], next, ... } }
+  //   - Apps en Development mode (nov. 2024) : renvoie { items: { items: [...], next, ... } }
+  //     (la clé `tracks` est strippée, remplacée par `items` au niveau racine)
+  // On gère les deux cas pour être robuste.
   const playlist = await api(`/playlists/${playlistId}`);
-  console.log('[BLINDIE] Réponse Spotify /playlists/{id} :', playlist);
-  console.log('[BLINDIE] tracks.total =', playlist?.tracks?.total,
-              '| items =', playlist?.tracks?.items?.length);
+  const container = playlist.tracks || playlist.items;
   const all = [];
 
   const collect = (items) => {
     for (const item of items || []) {
       const t = item.track;
-      if (!t) { console.log('[BLINDIE] item sans track:', item); continue; }
-      if (!t.id) { console.log('[BLINDIE] track sans id:', t); continue; }
-      if (t.type && t.type !== 'track') {
-        console.log('[BLINDIE] track type non supporté:', t.type, t.name);
-        continue;
-      }
+      // On ignore les items "vidéo", podcast, audiobook — ils ne sont pas
+      // utiles pour un blind test musical et iTunes ne les a pas non plus.
+      if (!t || !t.id) continue;
+      if (t.type && t.type !== 'track') continue;
       all.push(normalizeSpotifyTrack(t));
     }
   };
 
-  collect(playlist.tracks?.items);
+  collect(container?.items);
+  console.log(`[BLINDIE] ${all.length} morceaux extraits sur ${container?.total || '?'} de la playlist`);
 
-  // Tentative de pagination si plus de 100 morceaux — on tolère un échec
-  // ici car c'est le même endpoint qui pose problème.
-  let next = playlist.tracks?.next;
+  // Pagination best-effort si la playlist a plus de 100 morceaux.
+  let next = container?.next;
   while (next) {
     try {
       const u = new URL(next);
