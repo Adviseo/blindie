@@ -205,9 +205,9 @@ export function parseSpotifyPlaylistUrl(input) {
 // Returns an array of normalized track objects:
 //   { id, name, artists: string[], album, image, durationMs }
 export async function fetchSpotifyPlaylistTracks(playlistId) {
-  const fields =
-    'items(track(id,name,artists(name),album(name,images),duration_ms)),next';
-  let url = `/playlists/${playlistId}/tracks?limit=50&fields=${encodeURIComponent(fields)}`;
+  // Note: on n'utilise PAS de paramètre `fields=...` — il fait gagner un peu
+  // de bande passante mais cause parfois des 403 mystérieux côté Spotify.
+  let url = `/playlists/${playlistId}/tracks?limit=50`;
   const all = [];
   while (url) {
     const data = await api(url);
@@ -240,5 +240,5 @@ export function normalizeSpotifyTrack(t) {
 // Fetch playlist meta (name, owner, image) — used to display a confirmation
 // before enriching with iTunes previews.
 export async function fetchPlaylistMeta(playlistId) {
-  return api(`/playlists/${playlistId}?fields=name,owner(display_name),images,tracks(total)`);
+  return api(`/playlists/${playlistId}`);
 }
