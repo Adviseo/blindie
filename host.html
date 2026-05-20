@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BLINDIE · Host</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <main class="screen">
+    <div class="row" style="width:100%; max-width:1100px; justify-content:space-between;">
+      <a href="./index.html" class="btn btn-ghost btn-sm">← Accueil</a>
+      <div class="logo" style="font-size: 2.2rem; line-height:1;">BLINDIE</div>
+      <span id="spotify-status" class="tag">⏺ Spotify</span>
+    </div>
+
+    <!-- STEP 1 — Spotify login -->
+    <section id="step-login" class="card hidden">
+      <h2>Connexion Spotify</h2>
+      <p>L'host se connecte à Spotify uniquement pour importer une playlist
+         (titres, artistes, pochette). L'audio sera fourni par iTunes.</p>
+      <button id="btn-spotify-login" class="btn btn-spotify">🎧 Se connecter à Spotify</button>
+    </section>
+
+    <!-- STEP 2 — Import playlist -->
+    <section id="step-import" class="card card-lg hidden">
+      <h2>1. Importer la playlist</h2>
+      <p>Colle l'URL d'une playlist Spotify (publique ou perso).</p>
+      <input id="playlist-url" type="url" placeholder="https://open.spotify.com/playlist/...">
+      <button id="btn-load-playlist" class="btn btn-primary" style="margin-top:0.8rem;">
+        ➜ Charger la playlist
+      </button>
+
+      <div id="playlist-meta-block" class="hidden" style="margin-top:1rem;">
+        <div id="playlist-meta" class="playlist-meta"></div>
+      </div>
+
+      <div id="enrich-block" class="hidden" style="margin-top:1rem;">
+        <div class="muted">Recherche des extraits audio sur iTunes…</div>
+        <div class="progress"><div class="bar" id="progress-bar"></div></div>
+        <div class="counts">
+          <div class="count ok"><div class="n" id="count-ok">0</div><small>preview trouvée</small></div>
+          <div class="count missing"><div class="n" id="count-missing">0</div><small>preview manquante</small></div>
+          <div class="count ignored"><div class="n" id="count-ignored">0</div><small>ignoré</small></div>
+        </div>
+        <div id="track-list" class="track-list"></div>
+      </div>
+
+      <button id="btn-create-room" class="btn btn-primary hidden" style="margin-top:1rem;">
+        🚀 Créer la room
+      </button>
+
+      <div id="import-error" class="error hidden"></div>
+    </section>
+
+    <!-- STEP 3 — Lobby -->
+    <section id="step-lobby" class="card card-lg hidden">
+      <h2>2. Salon d'attente</h2>
+      <p>Les joueurs entrent ce code dans leur téléphone :</p>
+      <div id="room-code" class="room-code">----</div>
+      <p class="muted center" style="margin-top:0.5rem;">
+        URL à partager : <code id="join-url" style="color: var(--neon-cyan);"></code>
+      </p>
+
+      <h3 style="margin-top:1.5rem;">Joueurs connectés <span id="player-count" class="tag">0</span></h3>
+      <div id="player-list" class="player-list" style="margin-top:0.8rem;">
+        <p class="muted">En attente des potes…</p>
+      </div>
+
+      <div class="btn-row" style="margin-top:1.5rem;">
+        <button id="btn-start-game" class="btn btn-primary" disabled>
+          🚀 Démarrer la partie
+        </button>
+        <button id="btn-cancel-room" class="btn btn-ghost">Annuler</button>
+      </div>
+    </section>
+
+    <!-- STEP 4 — Playing (round) -->
+    <section id="step-playing" class="card card-lg hidden">
+      <div class="now-playing">
+        <div class="label">Round <span id="round-num">1</span> / <span id="round-total">10</span></div>
+        <div class="album-art mystery" id="album-art"></div>
+        <div class="timer" id="timer">30</div>
+        <audio id="audio" preload="auto"></audio>
+        <div class="btn-row" style="justify-content:center; margin-top:1rem; max-width:520px; margin-inline:auto;">
+          <button id="btn-replay" class="btn btn-ghost btn-sm">🔁 Rejouer</button>
+          <button id="btn-stop-audio" class="btn btn-warn btn-sm">⏹ Stop & révéler</button>
+        </div>
+      </div>
+
+      <h3>Réponses reçues <span id="answer-count" class="tag">0</span></h3>
+      <div id="answers" style="margin-top:0.8rem;"></div>
+    </section>
+
+    <!-- STEP 5 — Reveal -->
+    <section id="step-reveal" class="card card-lg hidden">
+      <div class="now-playing">
+        <div class="label">Round <span id="reveal-round-num">1</span></div>
+        <div class="album-art" id="reveal-art"></div>
+        <h2 id="reveal-title" style="margin-top:1rem;">—</h2>
+        <p id="reveal-artist" style="font-size:1.2rem; color:var(--neon-cyan);">—</p>
+      </div>
+
+      <h3>Réponses des joueurs</h3>
+      <div id="reveal-answers" style="margin-top:0.8rem;"></div>
+
+      <div class="btn-row" style="margin-top:1.5rem;">
+        <button id="btn-next-round" class="btn btn-primary">➜ Round suivant</button>
+        <button id="btn-end-game" class="btn btn-ghost">Fin de partie</button>
+      </div>
+    </section>
+
+    <!-- STEP 6 — Finished -->
+    <section id="step-finished" class="card card-lg hidden">
+      <h1 class="center" style="font-family: 'Bebas Neue'; font-size: 3rem; color: var(--neon-yellow); text-shadow: 0 0 30px rgba(255,214,10,0.5);">🏆 PODIUM 🏆</h1>
+      <div id="final-scoreboard" class="scoreboard" style="margin-top:1.5rem;"></div>
+      <button onclick="window.location.href='./index.html'" class="btn btn-primary" style="margin-top:1.5rem;">
+        🏠 Retour à l'accueil
+      </button>
+    </section>
+
+    <!-- Live mini scoreboard (visible during playing + reveal) -->
+    <section id="mini-score" class="card card-lg hidden">
+      <h3>Classement en direct</h3>
+      <div id="live-scoreboard" class="scoreboard"></div>
+    </section>
+  </main>
+
+  <script type="module" src="js/host.js"></script>
+</body>
+</html>

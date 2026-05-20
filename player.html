@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>BLINDIE · Joueur</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <main class="screen">
+    <div class="row" style="width:100%; max-width:480px; justify-content:space-between; align-items:center;">
+      <div class="logo" style="font-size: 1.8rem; line-height:1;">BLINDIE</div>
+      <span id="room-tag" class="tag">····</span>
+    </div>
+
+    <!-- Join (when no session yet) -->
+    <section id="state-join" class="card hidden">
+      <h2>Rejoindre une partie</h2>
+      <input id="join-code-in" type="text" class="input-code" maxlength="4" placeholder="CODE" autocomplete="off">
+      <input id="join-name-in" type="text" placeholder="Ton pseudo" maxlength="16" autocomplete="off" style="margin-top:0.7rem;">
+      <button id="btn-join" class="btn btn-primary" style="margin-top:0.7rem;">Rejoindre</button>
+      <div id="join-error" class="error hidden"></div>
+    </section>
+
+    <!-- Lobby -->
+    <section id="state-lobby" class="card hidden">
+      <div class="center">
+        <div class="spinner"></div>
+        <h2 style="margin-top:0.5rem;">Salut <span id="me-name" style="color: var(--neon-pink)">—</span> 👋</h2>
+        <p style="margin-top:0.5rem;">En attente du host pour démarrer…</p>
+      </div>
+      <h3 style="margin-top:1.5rem;">Autres joueurs <span id="player-count" class="tag">0</span></h3>
+      <div id="lobby-players" class="player-list" style="margin-top:0.5rem;"></div>
+
+      <button id="btn-leave" class="btn btn-ghost btn-sm" style="margin-top:1.5rem;">Quitter</button>
+    </section>
+
+    <!-- Playing -->
+    <section id="state-playing" class="card hidden">
+      <div class="center">
+        <div class="label" style="font-family:'Bebas Neue'; letter-spacing:0.3em; color: var(--neon-pink);">
+          ROUND <span id="play-round">1</span>
+        </div>
+        <h2 style="margin-top:0.5rem;">🎧 Quel est ce morceau ?</h2>
+        <div class="timer" id="play-timer" style="font-size:2.5rem; margin-top:0.5rem;">30</div>
+      </div>
+
+      <div class="col" style="margin-top:0.8rem;">
+        <input id="answer-title" type="text" placeholder="Titre du morceau" autocomplete="off">
+        <input id="answer-artist" type="text" placeholder="Artiste(s)" autocomplete="off">
+      </div>
+
+      <button id="btn-submit" class="btn btn-primary" style="margin-top:1rem;">
+        🚨 ENVOYER
+      </button>
+
+      <div id="submit-feedback" class="submitted-feedback hidden" style="margin-top:0.8rem;">
+        ✓ Réponse envoyée — tu peux modifier jusqu'à la révélation
+      </div>
+    </section>
+
+    <!-- Reveal -->
+    <section id="state-reveal" class="card hidden">
+      <div class="now-playing">
+        <div class="label">RÉPONSE</div>
+        <div class="album-art" id="reveal-art"></div>
+        <h2 id="reveal-title">—</h2>
+        <p id="reveal-artist" style="font-size:1.1rem; color:var(--neon-cyan); margin-top:0.3rem;">—</p>
+      </div>
+
+      <div id="my-result" class="center" style="margin-top:0.5rem;">
+        <span class="tag" id="my-points">…</span>
+      </div>
+
+      <h3 style="margin-top:1.5rem;">Classement</h3>
+      <div id="scoreboard" class="scoreboard"></div>
+    </section>
+
+    <!-- Finished -->
+    <section id="state-finished" class="card hidden">
+      <h1 class="center" style="font-family: 'Bebas Neue'; font-size: 2.5rem; color: var(--neon-yellow); text-shadow: 0 0 30px rgba(255,214,10,0.5);">🏆 FINI 🏆</h1>
+      <div id="final-scoreboard" class="scoreboard" style="margin-top:1.5rem;"></div>
+      <button onclick="window.location.href='./index.html'" class="btn btn-primary" style="margin-top:1.5rem;">
+        🏠 Retour à l'accueil
+      </button>
+    </section>
+  </main>
+
+  <script type="module" src="js/player.js"></script>
+</body>
+</html>

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>BLINDIE · Blind test entre potes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <main class="screen">
+    <div>
+      <h1 class="logo">BLINDIE</h1>
+      <div class="logo-sub">BLIND TEST · ENTRE POTES</div>
+    </div>
+
+    <div class="card">
+      <div class="col">
+        <button id="btn-host" class="btn btn-primary">
+          🎤 Créer une partie
+        </button>
+
+        <div class="row" style="margin: 0.5rem 0;">
+          <hr style="flex:1; border:none; border-top:1px solid rgba(255,255,255,0.1);">
+          <span class="muted">ou</span>
+          <hr style="flex:1; border:none; border-top:1px solid rgba(255,255,255,0.1);">
+        </div>
+
+        <input id="join-code" type="text" class="input-code" maxlength="4"
+               placeholder="CODE" autocomplete="off" inputmode="text">
+        <input id="join-name" type="text" placeholder="Ton pseudo" maxlength="16" autocomplete="off">
+        <button id="btn-join" class="btn btn-secondary">
+          📱 Rejoindre la partie
+        </button>
+
+        <div id="error" class="error hidden"></div>
+      </div>
+    </div>
+
+    <p class="muted center" style="max-width: 460px;">
+      Le host (créateur) joue la musique sur son écran/TV.<br>
+      Les joueurs proposent leurs réponses depuis leur téléphone.
+    </p>
+  </main>
+
+  <script type="module">
+    import { ensureAnonAuth } from './js/firebase.js';
+    import { roomExists, joinRoom } from './js/room.js';
+
+    const codeInput = document.getElementById('join-code');
+    const nameInput = document.getElementById('join-name');
+    const errorEl = document.getElementById('error');
+
+    // Pre-fill the join code from URL ?code=XXXX (so a shared URL works).
+    const params = new URLSearchParams(window.location.search);
+    const urlCode = params.get('code');
+    if (urlCode) codeInput.value = urlCode.toUpperCase().slice(0, 4);
+
+    codeInput.addEventListener('input', e => {
+      e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    });
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.classList.remove('hidden');
+    }
+    function clearError() { errorEl.classList.add('hidden'); }
+
+    document.getElementById('btn-host').addEventListener('click', () => {
+      window.location.href = './host.html';
+    });
+
+    document.getElementById('btn-join').addEventListener('click', async () => {
+      clearError();
+      const code = codeInput.value.trim().toUpperCase();
+      const name = nameInput.value.trim();
+      if (code.length !== 4) return showError("Code à 4 caractères.");
+      if (!name) return showError("Choisis un pseudo.");
+      if (name.length > 16) return showError("Pseudo trop long (16 max).");
+
+      try {
+        const user = await ensureAnonAuth();
+        const exists = await roomExists(code);
+        if (!exists) return showError("Aucune partie avec ce code.");
+        await joinRoom(code, user.uid, name);
+        sessionStorage.setItem('blindie.roomCode', code);
+        sessionStorage.setItem('blindie.playerName', name);
+        localStorage.setItem('blindie.lastName', name);
+        window.location.href = `./player.html?code=${code}`;
+      } catch (err) {
+        console.error(err);
+        showError(err.message || "Impossible de rejoindre.");
+      }
+    });
+
+    // Auto-fill last pseudo
+    const savedName = localStorage.getItem('blindie.lastName');
+    if (savedName) nameInput.value = savedName;
+    nameInput.addEventListener('change', e => {
+      localStorage.setItem('blindie.lastName', e.target.value);
+    });
+
+    // Submit on Enter from any field
+    [codeInput, nameInput].forEach(el => {
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter') document.getElementById('btn-join').click();
+      });
+    });
+  </script>
+</body>
+</html>

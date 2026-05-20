@@ -1,0 +1,34 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors / IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# Logs / caches
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.cache/
+.parcel-cache/
+node_modules/
+
+# Local dev secrets (just in case)
+.env
+.env.local
+.env.*.local
+
+# Build output (none expected for this project, but just in case)
+dist/
+build/
+
+# Firebase emulator cache
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
