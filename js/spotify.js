@@ -214,28 +214,20 @@ export async function fetchSpotifyPlaylistTracks(playlistId) {
   const container = playlist.tracks || playlist.items;
   const all = [];
 
-  // Diagnostic: dump le premier item pour voir sa structure
-  if (container?.items?.[0]) {
-    console.log('[BLINDIE] 1er item de la playlist :', container.items[0]);
-    console.log('[BLINDIE] Clés du 1er item :', Object.keys(container.items[0]));
-  }
-
-  let skippedNoTrack = 0, skippedNoId = 0, skippedType = 0;
+  // Spotify a aussi renommé `track` → `item` à l'intérieur de chaque entrée
+  // de la playlist pour les apps en dev mode (changement nov. 2024 non
+  // documenté). On lit les deux pour rester compatible.
   const collect = (items) => {
-    for (const item of items || []) {
-      const t = item.track;
-      if (!t) { skippedNoTrack++; continue; }
-      if (!t.id) { skippedNoId++; continue; }
-      if (t.type && t.type !== 'track') { skippedType++; continue; }
+    for (const wrapper of items || []) {
+      const t = wrapper.track || wrapper.item;
+      if (!t || !t.id) continue;
+      if (t.type && t.type !== 'track') continue;
       all.push(normalizeSpotifyTrack(t));
     }
   };
 
   collect(container?.items);
-  console.log(
-    `[BLINDIE] ${all.length} morceaux extraits sur ${container?.total || '?'}.`,
-    `Filtrés : no-track=${skippedNoTrack}, no-id=${skippedNoId}, type=${skippedType}`
-  );
+  console.log(`[BLINDIE] ${all.length}/${container?.total || '?'} morceaux récupérés`);
 
   // Pagination best-effort si la playlist a plus de 100 morceaux.
   let next = container?.next;
