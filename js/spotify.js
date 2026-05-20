@@ -158,6 +158,22 @@ async function api(path) {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!r.ok) {
+    // 403 sur une playlist : presque toujours une playlist éditoriale Spotify
+    // (préfixe 37i9dQZF1...) bloquée pour les apps en Development mode
+    // depuis novembre 2024. On donne un message explicite.
+    if (r.status === 403 && /\/playlists\/37i9dQZF1/.test(path)) {
+      throw new Error(
+        "Spotify bloque les playlists éditoriales (Today's Top Hits, Daily Mix…) " +
+        "pour les apps en Development mode depuis nov. 2024. " +
+        "Utilise une playlist créée par un user (la tienne ou celle d'un pote)."
+      );
+    }
+    if (r.status === 403) {
+      throw new Error(
+        "Spotify a refusé (403). Vérifie que tu es dans User Management du " +
+        "dashboard Spotify, ou utilise une autre playlist."
+      );
+    }
     const msg = await r.text();
     throw new Error(`Spotify API ${r.status}: ${msg.slice(0, 200)}`);
   }
