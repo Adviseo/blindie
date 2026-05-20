@@ -26,11 +26,16 @@ const state = {
   name: null,
   currentRoundIndex: -1,
   hasSubmittedThisRound: false,
-  // Local copy of the current track's title+artists so we can compute
-  // a fuzzy score against the player's answer. We only fetch the track
-  // metadata at reveal time (no previewUrl is ever sent to the player).
+  // Local copy of the current track. Includes title/artists (used to score
+  // the answer on submit) and previewUrl (used if the player opts to play
+  // audio on their own device via the "Jouer le son ici" button).
   currentTrackPublic: null,
   timerInterval: null,
+  // Audio joué localement par le joueur (optionnel — opt-in via bouton).
+  localAudio: null,
+  localAudioOn: false,
+  roundStartedAtMs: null,
+  roundDurationMs: null,
 };
 
 // === Init ===
@@ -121,19 +126,27 @@ async function handleRoomUpdate(room) {
   switch (room.status) {
     case 'lobby':
       stopTimer();
+      stopLocalAudio();
       showState('lobby');
       break;
 
     case 'playing':
       showState('playing');
+      // Cache timing info so the local audio button can sync to host
+      state.roundStartedAtMs = room.currentRoundStartedAt?.toMillis?.() || null;
+      state.roundDurationMs = (room.settings?.roundDurationSeconds
+                               || appConfig.defaultRoundDurationSeconds) * 1000;
       if (room.currentRoundIndex !== state.currentRoundIndex) {
         state.currentRoundIndex = room.currentRoundIndex;
         state.hasSubmittedThisRound = false;
         state.currentTrackPublic = null;
         resetAnswerForm();
-        // Fetch the current track WITHOUT exposing previewUrl in the form.
-        // We need title + artists to score the player's answer on submit.
+        stopLocalAudio();
+        // Fetch the current track. previewUrl is also fetched but only used
+        // if the player opts in via the "Jouer le son ici" button.
         state.currentTrackPublic = await fetchCurrentTrackPublic(room);
+        // If the player had enabled local audio earlier, auto-restart on new round
+        if (state.localAudioOn) playLocalAudio();
         startPlayerTimer(room);
       } else {
         startPlayerTimer(room);
@@ -143,12 +156,14 @@ async function handleRoomUpdate(room) {
 
     case 'reveal':
       stopTimer();
+      stopLocalAudio();
       showState('reveal');
       await renderReveal(room);
       break;
 
     case 'finished':
       stopTimer();
+      stopLocalAudio();
       showState('finished');
       $('final-scoreboard').innerHTML = $('scoreboard').innerHTML;
       break;
@@ -334,3 +349,59 @@ $('btn-leave').addEventListener('click', async () => {
   sessionStorage.clear();
   window.location.href = './index.html';
 });
+
+// === Local audio (opt-in per round, persists toggle across rounds) ===
+// L'audio joué localement utilise le previewUrl iTunes déjà stocké dans
+// Firestore. On synchronise au mieux avec le host en seekant en fonction
+// de l'écart entre `currentRoundStartedAt` (timestamp serveur) et maintenant.
+$('btn-local-audio').addEventListener('click', () => {
+  if (state.localAudioOn) {
+    stopLocalAudio();
+    state.localAudioOn = false;
+    updateLocalAudioBtn();
+  } else {
+    state.localAudioOn = true;
+    playLocalAudio();
+    updateLocalAudioBtn();
+  }
+});
+
+function playLocalAudio() {
+  const track = state.currentTrackPublic;
+  if (!track?.previewUrl) return;
+
+  if (!state.localAudio) state.localAudio = $('local-audio');
+  state.localAudio.src = track.previewUrl;
+  state.localAudio.volume = 1;
+
+  // Seek to the elapsed point relative to the host's round start.
+  // iTunes previews durent 30s. Si l'écart est trop grand, on ne joue pas.
+  const elapsed = state.roundStartedAtMs
+    ? (Date.now() - state.roundStartedAtMs) / 1000
+    : 0;
+  if (elapsed >= 30) return;  // preview déjà terminé
+  state.localAudio.currentTime = Math.max(0, elapsed);
+  state.localAudio.play().catch(err => {
+    console.warn('Audio bloqué :', err);
+  });
+}
+
+function stopLocalAudio() {
+  if (state.localAudio) {
+    state.localAudio.pause();
+    state.localAudio.currentTime = 0;
+  }
+}
+
+function updateLocalAudioBtn() {
+  const btn = $('btn-local-audio');
+  if (state.localAudioOn) {
+    btn.textContent = '🔇 Couper le son ici';
+    btn.classList.remove('btn-secondary');
+    btn.classList.add('btn-ghost');
+  } else {
+    btn.textContent = '🔊 Jouer le son ici';
+    btn.classList.add('btn-secondary');
+    btn.classList.remove('btn-ghost');
+  }
+}
