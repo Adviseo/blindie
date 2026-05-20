@@ -205,22 +205,35 @@ export function parseSpotifyPlaylistUrl(input) {
 // Returns an array of normalized track objects:
 //   { id, name, artists: string[], album, image, durationMs }
 export async function fetchSpotifyPlaylistTracks(playlistId) {
-  // Note: on n'utilise PAS de paramètre `fields=...` — il fait gagner un peu
-  // de bande passante mais cause parfois des 403 mystérieux côté Spotify.
-  let url = `/playlists/${playlistId}/tracks?limit=50`;
+  // L'endpoint /playlists/{id}/tracks renvoie parfois un 403 mystérieux
+  // (même pour une playlist privée de l'user logué). On utilise l'endpoint
+  // principal /playlists/{id} qui embarque déjà la première page (jusqu'à
+  // 100 morceaux) — largement suffisant pour un blind test entre potes.
+  const playlist = await api(`/playlists/${playlistId}`);
   const all = [];
-  while (url) {
-    const data = await api(url);
-    for (const item of data.items || []) {
+
+  const collect = (items) => {
+    for (const item of items || []) {
       const t = item.track;
       if (!t || !t.id) continue;
       all.push(normalizeSpotifyTrack(t));
     }
-    if (data.next) {
-      const u = new URL(data.next);
-      url = u.pathname.replace('/v1', '') + u.search;
-    } else {
-      url = null;
+  };
+
+  collect(playlist.tracks?.items);
+
+  // Tentative de pagination si plus de 100 morceaux — on tolère un échec
+  // ici car c'est le même endpoint qui pose problème.
+  let next = playlist.tracks?.next;
+  while (next) {
+    try {
+      const u = new URL(next);
+      const data = await api(u.pathname.replace('/v1', '') + u.search);
+      collect(data.items);
+      next = data.next;
+    } catch (e) {
+      console.warn('Pagination Spotify échouée, on garde les morceaux récupérés.', e);
+      break;
     }
   }
   return all;
