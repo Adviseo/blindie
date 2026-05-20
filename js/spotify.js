@@ -210,12 +210,20 @@ export async function fetchSpotifyPlaylistTracks(playlistId) {
   // principal /playlists/{id} qui embarque déjà la première page (jusqu'à
   // 100 morceaux) — largement suffisant pour un blind test entre potes.
   const playlist = await api(`/playlists/${playlistId}`);
+  console.log('[BLINDIE] Réponse Spotify /playlists/{id} :', playlist);
+  console.log('[BLINDIE] tracks.total =', playlist?.tracks?.total,
+              '| items =', playlist?.tracks?.items?.length);
   const all = [];
 
   const collect = (items) => {
     for (const item of items || []) {
       const t = item.track;
-      if (!t || !t.id) continue;
+      if (!t) { console.log('[BLINDIE] item sans track:', item); continue; }
+      if (!t.id) { console.log('[BLINDIE] track sans id:', t); continue; }
+      if (t.type && t.type !== 'track') {
+        console.log('[BLINDIE] track type non supporté:', t.type, t.name);
+        continue;
+      }
       all.push(normalizeSpotifyTrack(t));
     }
   };
