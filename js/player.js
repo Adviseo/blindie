@@ -31,9 +31,12 @@ const state = {
   // audio on their own device via the "Jouer le son ici" button).
   currentTrackPublic: null,
   timerInterval: null,
-  // Audio joué localement par le joueur (optionnel — opt-in via bouton).
+  // Audio joué localement par le joueur — toujours actif (Blindie est conçu
+  // pour des parties à distance via Discord). Un seul déblocage manuel est
+  // requis dans le lobby (limitation navigateur, on ne peut pas auto-play
+  // un son sans un premier clic user).
   localAudio: null,
-  localAudioOn: false,
+  audioUnlocked: false,
   roundStartedAtMs: null,
   roundDurationMs: null,
 };
@@ -132,6 +135,9 @@ async function handleRoomUpdate(room) {
 
     case 'playing':
       showState('playing');
+      // Si on a rejoint la partie en cours sans avoir débloqué le son dans
+      // le lobby, on affiche un bouton fallback de déblocage.
+      $('btn-unlock-audio-late').classList.toggle('hidden', state.audioUnlocked);
       // Cache timing info so the local audio button can sync to host
       state.roundStartedAtMs = room.currentRoundStartedAt?.toMillis?.() || null;
       state.roundDurationMs = (room.settings?.roundDurationSeconds
@@ -142,11 +148,11 @@ async function handleRoomUpdate(room) {
         state.currentTrackPublic = null;
         resetAnswerForm();
         stopLocalAudio();
-        // Fetch the current track. previewUrl is also fetched but only used
-        // if the player opts in via the "Jouer le son ici" button.
+        // Fetch the current track. previewUrl is included so we can play
+        // the audio on each player's device — Blindie est conçu pour des
+        // parties à distance, donc tout le monde a besoin du son.
         state.currentTrackPublic = await fetchCurrentTrackPublic(room);
-        // If the player had enabled local audio earlier, auto-restart on new round
-        if (state.localAudioOn) playLocalAudio();
+        playLocalAudio();
         startPlayerTimer(room);
       } else {
         startPlayerTimer(room);
@@ -350,36 +356,59 @@ $('btn-leave').addEventListener('click', async () => {
   window.location.href = './index.html';
 });
 
-// === Local audio (opt-in per round, persists toggle across rounds) ===
-// L'audio joué localement utilise le previewUrl iTunes déjà stocké dans
-// Firestore. On synchronise au mieux avec le host en seekant en fonction
-// de l'écart entre `currentRoundStartedAt` (timestamp serveur) et maintenant.
-$('btn-local-audio').addEventListener('click', () => {
-  if (state.localAudioOn) {
-    stopLocalAudio();
-    state.localAudioOn = false;
-    updateLocalAudioBtn();
-  } else {
-    state.localAudioOn = true;
-    playLocalAudio();
-    updateLocalAudioBtn();
-  }
-});
+// === Local audio (auto-play on each round once unlocked) ===
+// L'audio joué localement utilise le previewUrl iTunes stocké dans Firestore.
+// Sync au mieux avec le host en seekant à partir de `currentRoundStartedAt`
+// (timestamp serveur).
+//
+// Limitation navigateur : on ne peut pas démarrer un son sans un premier
+// clic user. D'où le bouton "Activer le son" dans le lobby.
+
+$('btn-unlock-audio').addEventListener('click', () => unlockAudio());
+$('btn-unlock-audio-late').addEventListener('click', () => unlockAudio());
+
+function unlockAudio() {
+  if (!state.localAudio) state.localAudio = $('local-audio');
+  // Joue un son muet pour débloquer la lecture audio dans la session.
+  // C'est le pattern standard pour iOS/Android.
+  state.localAudio.muted = true;
+  state.localAudio.play().then(() => {
+    state.localAudio.pause();
+    state.localAudio.muted = false;
+    state.audioUnlocked = true;
+    // Bouton lobby : transformation visuelle
+    const btn = $('btn-unlock-audio');
+    btn.textContent = '🔊 Son activé ✓';
+    btn.classList.remove('btn-primary');
+    btn.classList.add('btn-success');
+    btn.disabled = true;
+    $('audio-status').textContent = "Tu es prêt(e), bonne chance !";
+    // Bouton fallback playing : on le cache
+    $('btn-unlock-audio-late').classList.add('hidden');
+    // Si on est déjà au milieu d'un round (late join), démarre l'audio
+    if (state.currentRoundIndex >= 0 && state.currentTrackPublic) {
+      playLocalAudio();
+    }
+  }).catch(err => {
+    console.warn('Déblocage audio échoué :', err);
+    $('audio-status').textContent = "⚠ Le navigateur bloque le son. Réessaie ou vérifie tes permissions.";
+  });
+}
 
 function playLocalAudio() {
   const track = state.currentTrackPublic;
   if (!track?.previewUrl) return;
+  if (!state.audioUnlocked) return;  // pas encore débloqué — silence
 
   if (!state.localAudio) state.localAudio = $('local-audio');
   state.localAudio.src = track.previewUrl;
   state.localAudio.volume = 1;
 
-  // Seek to the elapsed point relative to the host's round start.
-  // iTunes previews durent 30s. Si l'écart est trop grand, on ne joue pas.
+  // Seek à partir du début du round host. iTunes previews = 30 s max.
   const elapsed = state.roundStartedAtMs
     ? (Date.now() - state.roundStartedAtMs) / 1000
     : 0;
-  if (elapsed >= 30) return;  // preview déjà terminé
+  if (elapsed >= 30) return;
   state.localAudio.currentTime = Math.max(0, elapsed);
   state.localAudio.play().catch(err => {
     console.warn('Audio bloqué :', err);
@@ -390,18 +419,5 @@ function stopLocalAudio() {
   if (state.localAudio) {
     state.localAudio.pause();
     state.localAudio.currentTime = 0;
-  }
-}
-
-function updateLocalAudioBtn() {
-  const btn = $('btn-local-audio');
-  if (state.localAudioOn) {
-    btn.textContent = '🔇 Couper le son ici';
-    btn.classList.remove('btn-secondary');
-    btn.classList.add('btn-ghost');
-  } else {
-    btn.textContent = '🔊 Jouer le son ici';
-    btn.classList.add('btn-secondary');
-    btn.classList.remove('btn-ghost');
   }
 }

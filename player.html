@@ -32,6 +32,14 @@
         <h2 style="margin-top:0.5rem;">Salut <span id="me-name" style="color: var(--neon-pink)">—</span> 👋</h2>
         <p style="margin-top:0.5rem;">En attente du host pour démarrer…</p>
       </div>
+
+      <button id="btn-unlock-audio" class="btn btn-primary" style="margin-top:1.5rem;">
+        🔊 Activer le son
+      </button>
+      <p id="audio-status" class="muted center" style="margin-top:0.5rem;">
+        Clique pour débloquer le son (obligatoire sur mobile).
+      </p>
+
       <h3 style="margin-top:1.5rem;">Autres joueurs <span id="player-count" class="tag">0</span></h3>
       <div id="lobby-players" class="player-list" style="margin-top:0.5rem;"></div>
 
@@ -48,10 +56,11 @@
         <div class="timer" id="play-timer" style="font-size:2.5rem; margin-top:0.5rem;">30</div>
       </div>
 
-      <button id="btn-local-audio" class="btn btn-secondary" style="margin-top:1rem;">
-        🔊 Jouer le son ici
-      </button>
       <audio id="local-audio" preload="auto" style="display:none;"></audio>
+
+      <button id="btn-unlock-audio-late" class="btn btn-warn hidden" style="margin-top:0.8rem;">
+        🔊 Activer le son
+      </button>
 
       <div class="col" style="margin-top:0.8rem;">
         <input id="answer-title" type="text" placeholder="Titre du morceau" autocomplete="off">
