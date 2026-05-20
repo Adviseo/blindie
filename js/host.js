@@ -17,7 +17,7 @@ import {
 import { enrichTracksWithPreviews } from './previews.js';
 import {
   createRoom, addTracksToRoom, fetchRoomTracks,
-  startGame, startRound, lockRound, revealRound, nextRound, endGame,
+  startRound, lockRound, revealRound, nextRound, endGame,
   scoreRound, listenPlayers, listenAnswers, deleteRoom,
 } from './room.js';
 import { escapeHtml, formatArtists, safeImageUrl } from './utils.js';
@@ -30,10 +30,13 @@ const steps = ['login', 'import', 'lobby', 'playing', 'reveal', 'finished'];
 function showStep(name) {
   steps.forEach(s => $(`step-${s}`).classList.toggle('hidden', s !== name));
   $('mini-score').classList.toggle('hidden', !['playing', 'reveal'].includes(name));
+  state.step = name;
 }
 
 // === State ===
 const state = {
+  step: null,            // current showStep() name — used by listeners pour
+                         // choisir entre renderLiveAnswers / renderRevealAnswers
   hostId: null,
   roomId: null,
   enriched: [],          // results from enrichTracksWithPreviews (incl. ignored)
@@ -246,7 +249,9 @@ function renderLobbyPlayers() {
 
 // === STEP 3 → 4 : start game ===
 $('btn-start-game').addEventListener('click', async () => {
-  await startGame(state.roomId);
+  // playRound() appelle déjà startRound(roomId, 0) en interne — pas besoin
+  // d'un startGame() séparé qui écrirait un currentRoundStartedAt en double
+  // (ce qui désynchronisait l'audio des joueurs sur le round 0).
   state.roundIndex = 0;
   await playRound();
 });
@@ -278,7 +283,9 @@ async function playRound() {
   $('btn-stop-audio').textContent = '⏹ Stop & révéler';
   $('btn-stop-audio').disabled = false;
 
-  // Audio (host-only)
+  // Audio host : joue la piste pour le présentateur. Chaque joueur a aussi
+  // son propre audio synchronisé côté player.js — Blindie est conçu pour
+  // les parties à distance via Discord.
   if (state.audio) { state.audio.pause(); state.audio = null; }
   state.audio = new Audio(track.previewUrl);
   state.audio.volume = 1;
@@ -290,7 +297,11 @@ async function playRound() {
   if (state.unsubAnswers) state.unsubAnswers();
   state.unsubAnswers = listenAnswers(state.roomId, state.roundIndex, answers => {
     state.answers = answers;
-    renderLiveAnswers();
+    // En reveal on a déjà rendu state.answers avec les scores retournés par
+    // scoreRound — on rerend pour propager les éventuels updates Firestore
+    // (par ex. score corrigé via une seconde passe).
+    if (state.step === 'reveal') renderRevealAnswers();
+    else renderLiveAnswers();
   });
 
   state.audio.onended = () => {
@@ -337,14 +348,17 @@ $('btn-stop-audio').addEventListener('click', async () => {
     // Lock si pas déjà fait (stop anticipé). Idempotent : si la room est
     // déjà "locked", c'est un no-op côté Firestore.
     await lockRound(state.roomId);
-    // Score toutes les réponses avant de révéler.
-    await scoreRound(
+    // Score toutes les réponses avant de révéler. La fonction retourne les
+    // answers enrichis avec leurs scores : on écrase state.answers pour ne
+    // pas attendre que le listener Firestore propage l'update.
+    const scored = await scoreRound(
       state.roomId,
       state.roundIndex,
       state.currentTrack,
       state.answers,
       { pointsTitle: appConfig.pointsTitle, pointsArtist: appConfig.pointsArtist },
     );
+    state.answers = scored;
     await revealRound(state.roomId, state.currentTrack.id);
     doReveal();
   } catch (e) {

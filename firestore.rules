@@ -57,8 +57,10 @@ service cloud.firestore {
 
       // ===================================================================
       // players : 1 doc par joueur. ID du doc = uid Auth du joueur.
-      //   - Joueur s'inscrit lui-même (create/update sur ses champs autorisés)
-      //   - Joueur ne peut PAS toucher au champ `score`
+      //   - Joueur s'inscrit lui-même avec name/joinedAt/lastSeen
+      //   - Joueur ne peut updater QUE name/lastSeen (touchPlayer doit
+      //     marcher même après que le host ait écrit `score`)
+      //   - Joueur ne peut JAMAIS toucher au champ `score`
       //   - Host peut tout modifier (notamment écrire `score` cumulé)
       //   - Delete : le joueur lui-même ou le host
       // ===================================================================
@@ -72,30 +74,37 @@ service cloud.firestore {
         function isSelf() {
           return request.auth != null && request.auth.uid == playerId;
         }
-        // Champs autorisés au joueur (anti-élévation de score)
-        function playerAllowedFields() {
+        // À la création, seuls ces 3 champs sont autorisés
+        function playerCreateFields() {
           return request.resource.data.keys().hasOnly(['name', 'joinedAt', 'lastSeen']);
+        }
+        // Sur update, on autorise UNIQUEMENT la modification de name/lastSeen
+        // (donc pas joinedAt, et surtout pas score).
+        // On utilise diff().affectedKeys() pour ignorer les champs déjà
+        // présents et non modifiés (comme `score` ajouté par le host).
+        function playerUpdateAffectedOk() {
+          return request.resource.data.diff(resource.data)
+                   .affectedKeys().hasOnly(['name', 'lastSeen']);
         }
 
         allow read: if request.auth != null;
 
-        // Création par le joueur : uniquement les champs autorisés
-        allow create: if isSelf() && playerAllowedFields();
+        allow create: if isSelf() && playerCreateFields();
 
-        // Update : soit le joueur (sans toucher au score), soit le host
-        allow update: if (isSelf() && playerAllowedFields())
+        allow update: if (isSelf() && playerUpdateAffectedOk())
                       || isHostHere();
 
-        // Suppression : self-leave ou kick par le host
         allow delete: if isSelf() || isHostHere();
       }
 
       // ===================================================================
-      // answers : 1 doc par (joueur, round).
+      // answers : 1 doc par joueur, ID du doc = uid Auth du joueur.
+      //   - Le joueur ne peut avoir qu'UN seul doc d'answer (anti-duplicate
+      //     pour gonfler le score). On enforce answerId == request.auth.uid.
       //   - Joueur n'écrit QUE sa réponse brute (sans champs score*),
-      //     UNIQUEMENT pendant status == "playing" + bon currentRoundIndex
-      //   - Host peut tout (notamment écrire les scoreTitle/scoreArtist/totalScore
-      //     au moment du reveal, ou supprimer)
+      //     UNIQUEMENT pendant status == "playing" + bon currentRoundIndex.
+      //   - Host peut tout (notamment écrire les scoreTitle/scoreArtist/
+      //     totalScore au moment du reveal, ou supprimer).
       // ===================================================================
       match /answers/{answerId} {
         function parentRoom() {
@@ -109,8 +118,11 @@ service cloud.firestore {
           return r.status == 'playing'
                  && request.resource.data.roundIndex == r.currentRoundIndex;
         }
+        // Le doc ID DOIT être le uid Auth (1 doc/joueur).
+        // request.resource.data.playerId DOIT correspondre aussi.
         function isOwnAnswer() {
           return request.auth != null
+                 && answerId == request.auth.uid
                  && request.resource.data.playerId == request.auth.uid;
         }
         // Champs autorisés au joueur : pas de champs score*
@@ -134,7 +146,6 @@ service cloud.firestore {
                         isOwnAnswer()
                         && playerAnswerFields()
                         && gameIsOpenForAnswers()
-                        && resource.data.playerId == request.auth.uid
                       )
                       || isHostHere();
 

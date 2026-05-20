@@ -2,7 +2,7 @@
 // All multi-device sync happens here: rooms, tracks, players, answers.
 
 import {
-  doc, getDoc, setDoc, updateDoc, addDoc, deleteDoc,
+  doc, getDoc, setDoc, updateDoc, deleteDoc,
   collection, query, where, orderBy, limit, getDocs,
   onSnapshot, writeBatch, increment, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -19,6 +19,10 @@ const trackDoc = (roomId, trackId) => doc(db, 'rooms', roomId, 'tracks', trackId
 const playersCol = (roomId) => collection(db, 'rooms', roomId, 'players');
 const playerDoc = (roomId, playerId) => doc(db, 'rooms', roomId, 'players', playerId);
 const answersCol = (roomId) => collection(db, 'rooms', roomId, 'answers');
+// Answer doc ID == playerId : 1 seul doc actif par joueur, remplacé à chaque
+// round. Empêche un joueur malicieux de multiplier ses answers (et donc son
+// score) via plusieurs addDoc(). Côté règles, on impose answerId == auth.uid.
+const answerDoc = (roomId, playerId) => doc(db, 'rooms', roomId, 'answers', playerId);
 
 // ===================================================================
 // Room creation / lookup
@@ -164,10 +168,6 @@ export function listenAnswers(roomId, roundIndex, callback) {
 // Game flow
 // ===================================================================
 
-export async function startGame(roomId) {
-  await startRound(roomId, 0);
-}
-
 export async function startRound(roomId, roundIndex) {
   await updateDoc(roomDoc(roomId), {
     status: 'playing',
@@ -230,22 +230,14 @@ export function calculateScore(answer, track, settings) {
 // Le joueur n'écrit QUE sa réponse brute — pas de score. Le scoring est
 // effectué côté host au moment du reveal (cf. scoreRound).
 //
-// Re-submission : si le joueur a déjà répondu pour ce round, on remplace.
-// Idempotent côté score puisqu'aucun score n'est écrit ici.
+// Doc ID déterministe = playerId : un seul answer actif par joueur, remplacé
+// à chaque round. Pas d'historique en Firestore, mais surtout pas de
+// possibilité de créer plusieurs answers pour gonfler le score.
 export async function submitAnswer(roomId, playerId, playerName, roundIndex, answer) {
   const room = await getRoom(roomId);
   if (!room) throw new Error("Room introuvable.");
   if (room.status !== 'playing') throw new Error("Round verrouillé, réponses fermées.");
   if (room.currentRoundIndex !== roundIndex) throw new Error("Round désynchronisé.");
-
-  // Look up any existing answer for this player + round.
-  const q = query(
-    answersCol(roomId),
-    where('playerId', '==', playerId),
-    where('roundIndex', '==', roundIndex),
-    limit(1)
-  );
-  const existing = await getDocs(q);
 
   const payload = {
     playerId,
@@ -255,13 +247,7 @@ export async function submitAnswer(roomId, playerId, playerName, roundIndex, ans
     artistAnswer: (answer.artistAnswer || '').trim(),
     submittedAt: serverTimestamp(),
   };
-
-  if (existing.empty) {
-    await addDoc(answersCol(roomId), payload);
-  } else {
-    const ref = existing.docs[0].ref;
-    await setDoc(ref, payload, { merge: false });
-  }
+  await setDoc(answerDoc(roomId, playerId), payload, { merge: false });
 }
 
 // Score tous les answers d'un round et met à jour les scores cumulés des
@@ -271,8 +257,11 @@ export async function submitAnswer(roomId, playerId, playerName, roundIndex, ans
 //     (qui sera 0 si déjà scoré, donc pas de double comptage)
 //
 // `answers` doit être la liste actuelle des docs Firestore du round
-// (depuis listenAnswers / getDocs sur la collection).
+// (depuis listenAnswers). Retourne la liste enrichie des answers scorés,
+// que le host peut afficher immédiatement sans attendre le re-snapshot
+// du listener.
 export async function scoreRound(roomId, roundIndex, track, answers, settings) {
+  const scored = [];
   for (const ans of answers) {
     const newScores = calculateScore(
       { titleAnswer: ans.titleAnswer, artistAnswer: ans.artistAnswer },
@@ -293,7 +282,10 @@ export async function scoreRound(roomId, roundIndex, track, answers, settings) {
     if (delta !== 0) {
       await updatePlayerScore(roomId, ans.playerId, delta);
     }
+
+    scored.push({ ...ans, ...newScores });
   }
+  return scored;
 }
 
 // ===================================================================

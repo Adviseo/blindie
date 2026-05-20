@@ -1,6 +1,6 @@
 // === BLINDIE — Configuration ===
 // Toute la config statique se trouve dans CE fichier.
-// Voir README.md pour le détail des étapes Firebase / Spotify / GitHub Pages.
+// Voir README.md pour le détail des étapes Firebase / Spotify / Netlify.
 
 // --- Firebase (clés publiques, sécurisées par les règles Firestore) ---
 export const firebaseConfig = {

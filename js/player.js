@@ -1,5 +1,8 @@
-// Player logic — runs on the phone. Only reads room state, submits answers,
-// and never sees the previewUrl (audio is host-only).
+// Player logic — runs on the phone. Lit l'état de la room, soumet des
+// réponses, et joue l'audio iTunes localement (Blindie est conçu pour les
+// parties à distance via Discord — tout le monde a besoin du son).
+// Le scoring est calculé côté host au reveal, le joueur n'écrit jamais
+// de score.
 
 import { ensureAnonAuth } from './firebase.js';
 import {
@@ -26,9 +29,10 @@ const state = {
   name: null,
   currentRoundIndex: -1,
   hasSubmittedThisRound: false,
-  // Local copy of the current track. Includes title/artists (used to score
-  // the answer on submit) and previewUrl (used if the player opts to play
-  // audio on their own device via the "Jouer le son ici" button).
+  // Copie locale du track courant. Sert à jouer l'audio (previewUrl) en
+  // synchro avec le host. Le scoring est fait côté host au reveal, donc
+  // les champs title/artists ne sont pas utilisés pour le scoring côté
+  // joueur — mais ils sont visibles via Firestore (assumé, parties privées).
   currentTrackPublic: null,
   timerInterval: null,
   // Audio joué localement par le joueur — toujours actif (Blindie est conçu
@@ -193,10 +197,10 @@ async function handleRoomUpdate(room) {
   }
 }
 
-// Fetch the current track from Firestore by `order` field. We pull only
-// the metadata fields needed for scoring on submit. The previewUrl is also
-// fetched (Firestore doesn't let us select subsets cheaply) but we never
-// surface it in the DOM.
+// Fetch the current track from Firestore by `order` field. Le previewUrl
+// est récupéré pour jouer l'audio en local (synchronisé avec le host).
+// Le title/artists/imageUrl sont aussi présents mais non affichés avant
+// le reveal — le scoring est fait côté host, le joueur n'en a pas besoin.
 async function fetchCurrentTrackPublic(room) {
   if (room.currentRoundIndex == null) return null;
   const q = query(
