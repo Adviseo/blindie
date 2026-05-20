@@ -4,12 +4,12 @@
 
 // --- Firebase (clés publiques, sécurisées par les règles Firestore) ---
 export const firebaseConfig = {
-  apiKey: "REPLACE_ME",
-  authDomain: "REPLACE_ME.firebaseapp.com",
-  projectId: "REPLACE_ME",
-  storageBucket: "REPLACE_ME.appspot.com",
-  messagingSenderId: "REPLACE_ME",
-  appId: "REPLACE_ME",
+  apiKey: "AIzaSyAs0SatWss5oimh4JcoVaW79jRLIkcq3Zs",
+  authDomain: "blindie-app.firebaseapp.com",
+  projectId: "blindie-app",
+  storageBucket: "blindie-app.firebasestorage.app",
+  messagingSenderId: "521213406532",
+  appId: "1:521213406532:web:9a96a6173637ee96d53b11",
 };
 
 // --- Spotify (OAuth 2.0 PKCE — pas de client secret) ---
@@ -17,8 +17,8 @@ export const firebaseConfig = {
 // Spotify Developer (incluant le https, le chemin, l'absence ou présence de
 // trailing slash).
 export const spotifyConfig = {
-  clientId: "REPLACE_ME",
-  redirectUri: "https://TON_USER.github.io/TON_REPO/host.html",
+  clientId: "27e33cf995d94c8480ffbaf09a019ce4",
+  redirectUri: "https://adviseo.github.io/blindie/host.html",
   scopes: [
     "playlist-read-private",
     "playlist-read-collaborative",
@@ -27,7 +27,7 @@ export const spotifyConfig = {
 
 // --- App ---
 export const appConfig = {
-  baseUrl: "https://TON_USER.github.io/TON_REPO",
+  baseUrl: "https://adviseo.github.io/blindie",
   defaultRoundDurationSeconds: 30,
   pointsTitle: 1,
   pointsArtist: 1,
