@@ -108,7 +108,13 @@ service cloud.firestore {
           return isSelf() && (r.status == 'lobby' || r.status == 'finished');
         }
 
-        allow get:  if isRoomParticipant() || isHostHere();
+        // get inclut isSelf() pour qu'un NOUVEAU joueur (pas encore
+        // participant) puisse interroger son propre doc avant de le créer
+        // — joinRoom fait un getDoc(players/{uid}) pour décider entre
+        // create et update minimal.
+        allow get:  if isSelf() || isRoomParticipant() || isHostHere();
+        // list reste strictement réservé aux participants / host pour
+        // éviter qu'un utilisateur non-participant scanne la liste.
         allow list: if isRoomParticipant() || isHostHere();
 
         // Le joueur crée son propre doc.
@@ -159,11 +165,17 @@ service cloud.firestore {
         allow get:  if isRoomParticipant() || isHostHere();
         allow list: if isRoomParticipant() || isHostHere();
 
-        allow create: if isOwnAnswer()
+        // Pour écrire une réponse, l'utilisateur doit être PARTICIPANT
+        // (avoir un doc player dans cette room). Sans ça, un user authentifié
+        // qui connaîtrait le code pourrait pousser des answers sans avoir
+        // jamais rejoint le lobby.
+        allow create: if isRoomParticipant()
+                      && isOwnAnswer()
                       && playerAnswerFields()
                       && gameIsOpenForAnswers();
         allow update: if (
-                        isOwnAnswer()
+                        isRoomParticipant()
+                        && isOwnAnswer()
                         && playerAnswerFields()
                         && gameIsOpenForAnswers()
                       )
