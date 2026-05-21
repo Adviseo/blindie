@@ -50,6 +50,8 @@ const state = {
   unsubAnswers: null,
   players: [],
   answers: [],
+  qrCode: null,          // instance qr-code-styling (sert à getRawData pour la copie PNG)
+  joinUrl: '',           // URL d'invitation, utilisée par les boutons "Copier le lien"
 };
 
 // === Spotify status chip ===
@@ -412,10 +414,11 @@ function loadQRCodeStyling() {
 async function renderJoinQR(url) {
   const container = $('join-qr');
   if (!container) return;
+  state.joinUrl = url;
   const QRCodeStyling = await loadQRCodeStyling();
   if (!QRCodeStyling) { container.style.display = 'none'; return; }
   container.innerHTML = '';
-  const qr = new QRCodeStyling({
+  state.qrCode = new QRCodeStyling({
     width: 220,
     height: 220,
     type: 'svg',
@@ -439,8 +442,64 @@ async function renderJoinQR(url) {
     cornersSquareOptions: { type: 'extra-rounded', color: '#ff2e9a' },
     cornersDotOptions: { type: 'dot', color: '#b14aed' },
   });
-  qr.append(container);
+  state.qrCode.append(container);
 }
+
+function flashButton(btn, label, ms = 1400) {
+  const prev = btn.dataset.prevLabel || btn.textContent;
+  btn.dataset.prevLabel = prev;
+  btn.textContent = label;
+  btn.classList.add('success-flash');
+  clearTimeout(btn._flashTimer);
+  btn._flashTimer = setTimeout(() => {
+    btn.textContent = prev;
+    btn.classList.remove('success-flash');
+    btn.dataset.prevLabel = '';
+  }, ms);
+}
+
+$('btn-copy-url').addEventListener('click', async () => {
+  if (!state.joinUrl) return;
+  try {
+    await navigator.clipboard.writeText(state.joinUrl);
+    flashButton($('btn-copy-url'), '✓ Lien copié !');
+  } catch (err) {
+    console.warn('Copy URL failed', err);
+    flashButton($('btn-copy-url'), '✗ Échec — copie manuelle');
+  }
+});
+
+// Copie le QR en PNG dans le presse-papier. Pratique pour le coller
+// directement dans Discord (Discord détecte l'image et l'affiche inline).
+// Fallback : si l'API ClipboardItem image/png n'est pas dispo (Safari ancien,
+// Firefox <127), on télécharge le PNG à la place.
+$('btn-copy-qr').addEventListener('click', async () => {
+  const btn = $('btn-copy-qr');
+  if (!state.qrCode) {
+    flashButton(btn, '✗ QR pas prêt');
+    return;
+  }
+  try {
+    const blob = await state.qrCode.getRawData('png');
+    if (window.ClipboardItem && navigator.clipboard?.write) {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      flashButton(btn, '✓ QR copié !');
+    } else {
+      // Fallback : déclenche un download
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `blindie-${state.roomId || 'qr'}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      flashButton(btn, '↓ QR téléchargé');
+    }
+  } catch (err) {
+    console.warn('Copy QR failed', err);
+    flashButton(btn, '✗ Échec');
+  }
+});
 
 // === STEP 4 : playing ===
 async function playRound() {
