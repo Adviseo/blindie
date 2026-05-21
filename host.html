@@ -67,10 +67,13 @@
     <!-- STEP 3 — Lobby -->
     <section id="step-lobby" class="card card-lg hidden">
       <h2>2. Salon d'attente</h2>
-      <p>Les joueurs entrent ce code dans leur téléphone :</p>
-      <div id="room-code" class="room-code">------</div>
-      <p class="muted center" style="margin-top:0.5rem;">
-        URL à partager : <code id="join-url" style="color: var(--neon-cyan);"></code>
+      <p>Code à taper <strong>ou</strong> QR à flasher :</p>
+      <div class="join-share">
+        <div id="room-code" class="room-code">------</div>
+        <div id="join-qr" class="join-qr" aria-label="QR code pour rejoindre la partie"></div>
+      </div>
+      <p class="muted center" style="margin-top:0.8rem;">
+        <code id="join-url" style="color: var(--neon-cyan); cursor: copy;"></code>
       </p>
 
       <h3 style="margin-top:1.5rem;">Joueurs connectés <span id="player-count" class="tag">0</span></h3>

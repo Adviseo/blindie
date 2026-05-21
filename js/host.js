@@ -125,7 +125,9 @@ async function tryRehydrateHostSession() {
   }
 
   $('room-code').textContent = savedRoomId;
-  $('join-url').textContent = `${appConfig.baseUrl}/index.html?code=${savedRoomId}`;
+  const rehydratedJoinUrl = `${appConfig.baseUrl}/index.html?code=${savedRoomId}`;
+  $('join-url').textContent = rehydratedJoinUrl;
+  renderJoinQR(rehydratedJoinUrl);
 
   state.unsubPlayers = listenPlayers(savedRoomId, players => {
     state.players = players.filter(p => p.id !== state.hostId);
@@ -340,6 +342,7 @@ $('btn-create-room').addEventListener('click', async () => {
     $('room-code').textContent = roomId;
     const joinUrl = `${appConfig.baseUrl}/index.html?code=${roomId}`;
     $('join-url').textContent = joinUrl;
+    renderJoinQR(joinUrl);
 
     state.unsubPlayers = listenPlayers(roomId, players => {
       // Drop the host from the player list (host is signed in anonymously
@@ -391,6 +394,53 @@ $('btn-cancel-room').addEventListener('click', async () => {
   await deleteRoom(state.roomId);
   window.location.href = './index.html';
 });
+
+// === QR code "Rejoindre" ===
+// Lazy load qr-code-styling (~40 KB) — seulement quand le host arrive
+// dans le lobby. Si le CDN est down, on dégrade silencieusement (juste
+// pas de QR ; le code numérique et l'URL restent affichés).
+let _QRCodeStylingPromise = null;
+function loadQRCodeStyling() {
+  if (!_QRCodeStylingPromise) {
+    _QRCodeStylingPromise = import('https://cdn.jsdelivr.net/npm/qr-code-styling@1.9.0/+esm')
+      .then(m => m.default || m)
+      .catch(err => { console.warn('QR lib failed to load', err); return null; });
+  }
+  return _QRCodeStylingPromise;
+}
+
+async function renderJoinQR(url) {
+  const container = $('join-qr');
+  if (!container) return;
+  const QRCodeStyling = await loadQRCodeStyling();
+  if (!QRCodeStyling) { container.style.display = 'none'; return; }
+  container.innerHTML = '';
+  const qr = new QRCodeStyling({
+    width: 220,
+    height: 220,
+    type: 'svg',
+    data: url,
+    image: 'favicon.svg',
+    margin: 4,
+    qrOptions: { errorCorrectionLevel: 'H' },  // permet ~30% de pixels cachés (logo central)
+    imageOptions: { hideBackgroundDots: true, imageSize: 0.28, margin: 4 },
+    dotsOptions: {
+      type: 'rounded',
+      gradient: {
+        type: 'linear',
+        rotation: Math.PI / 4,
+        colorStops: [
+          { offset: 0, color: '#ff2e9a' },   // rose néon
+          { offset: 1, color: '#6b1fb3' },   // violet profond (gardé sombre pour rester scannable)
+        ],
+      },
+    },
+    backgroundOptions: { color: 'transparent' },
+    cornersSquareOptions: { type: 'extra-rounded', color: '#ff2e9a' },
+    cornersDotOptions: { type: 'dot', color: '#b14aed' },
+  });
+  qr.append(container);
+}
 
 // === STEP 4 : playing ===
 async function playRound() {

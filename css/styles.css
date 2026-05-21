@@ -342,6 +342,37 @@ input::placeholder { color: rgba(184, 168, 212, 0.5); }
   cursor: copy;
 }
 
+.join-share {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.join-qr {
+  width: 220px;
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6rem;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 16px;
+  box-shadow: 0 0 24px rgba(177, 74, 237, 0.5), 0 0 12px rgba(255, 46, 154, 0.4);
+}
+
+.join-qr canvas, .join-qr svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+@media (max-width: 600px) {
+  .join-qr { width: 180px; height: 180px; }
+}
+
 /* === GAME STATES === */
 .now-playing {
   text-align: center;
