@@ -127,16 +127,25 @@ export const appConfig = {
 Les règles sont versionnées dans [`firestore.rules`](firestore.rules). Résumé :
 
 - **Auth anonyme obligatoire** sur tout.
-- **`rooms/{roomId}`** : créer une room exige `hostId == request.auth.uid`. Update/delete = host seul.
-- **`rooms/{roomId}/tracks`** : lecture pour tout joueur authentifié (nécessaire pour jouer le `previewUrl`). Écriture host seul.
+- **Lectures séparées en `get` et `list`** : aucune collection n'est listable globalement. `list` est restreint au host de la room ou aux participants (utilisateurs qui ont un doc dans `rooms/{roomId}/players`).
+- **`rooms/{roomId}`** :
+  - `get` : tout utilisateur authentifié (nécessaire pour `roomExists(code)` avant join, et pour les listeners).
+  - `list` : **interdit** — personne ne peut énumérer toutes les rooms existantes.
+  - `create` : exige `hostId == request.auth.uid` et `status == "lobby"`.
+  - `update` / `delete` : host de la room seul.
+- **`rooms/{roomId}/tracks/{trackId}`** :
+  - `get` / `list` : host ou participant de cette room (nécessaire pour player.js qui query `where('order', '==', N)`).
+  - Écriture (`create`/`update`/`delete`) : host seul.
 - **`rooms/{roomId}/players/{playerId}`** :
   - `playerId` doit être l'`uid` Auth du joueur.
+  - `get` / `list` : host ou participant de la room.
   - À la création, le joueur écrit `name`, `joinedAt`, `lastSeen`.
   - En update, le joueur ne peut modifier QUE `name` et `lastSeen` (via `diff().affectedKeys().hasOnly(...)`) — donc `joinedAt` est figé après création et `score` reste **interdit** au joueur.
   - Le host peut créer/modifier (utile pour `updatePlayerScore` qui tolère un doc supprimé en recréant un stub).
-  - **Quitter pendant un round** (`status == "playing"` ou `"locked"`) ne supprime PAS le doc player côté code, pour préserver le scoring du round en cours. Le delete se fait uniquement en lobby/reveal/finished.
+  - **Self-delete** : autorisé uniquement quand `status == "lobby"` ou `"finished"`. Pendant un round (`playing`/`locked`/`reveal`), le delete est refusé pour préserver le scoring/scoreboard. Le host garde toujours le droit de delete (kick).
 - **`rooms/{roomId}/answers/{answerId}`** :
   - `answerId` DOIT être l'`uid` Auth du joueur → **un seul doc answer actif par joueur**, remplacé à chaque round (empêche les doublons qui gonfleraient le score).
+  - `get` / `list` : host ou participant de la room.
   - Pas d'historique des réponses passées en Firestore.
   - Le joueur écrit uniquement `playerId, playerName, roundIndex, titleAnswer, artistAnswer, submittedAt`, et **uniquement** quand `room.status == "playing"` et que `roundIndex == currentRoundIndex`.
   - Les champs `scoreTitle, scoreArtist, totalScore` sont écrits **par le host** au reveal à partir d'un re-fetch frais de Firestore (pas du listener qui peut être en retard).
@@ -217,15 +226,18 @@ rooms/{roomId}/answers/{answerId}   (answerId == uid Auth ; 1 doc/joueur)
 Ce qui est défendu :
 
 - **Manipulation du score côté joueur** : règles Firestore restreignent les champs écrivables par le joueur (`score` interdit sur `players`, champs `score*` interdits sur `answers`).
+- **Doublons d'answers** : `answerId == uid` impose 1 seul doc actif par joueur — impossible de spammer plusieurs answers pour gonfler le score.
 - **Réponse après expiration du timer** : transition automatique vers status `locked` à 0 s. Toute écriture d'answer est rejetée côté règles (status check) ET côté code (`submitAnswer` vérifie aussi).
+- **Sabotage du scoreboard** : `delete` du player doc par le joueur autorisé uniquement en `lobby`/`finished` — refusé pendant un round actif (le doc reste, son score est préservé).
+- **Énumération de la base** : `list` désactivé sur `rooms` (personne ne peut découvrir les rooms existantes) ; `list` des sous-collections restreint aux participants/host de la room concernée.
 - **Détournement OAuth Spotify** : flow PKCE + paramètre `state` aléatoire vérifié au callback.
 - **Injection XSS via URL externe** : toutes les images injectées via `innerHTML` passent par `safeImageUrl()` qui exige une URL `https://` parsable. `javascript:`, `data:`, `blob:`, `http:` sont rejetés.
 - **Headers sécurité** : nosniff, no-frame, CSP restrictive, permissions-policy.
 
 Ce qui n'est PAS défendu (compromis assumés vu le contexte privé) :
 
-- Les `previewUrl` iTunes sont stockés dans Firestore : un joueur curieux qui inspecte le DOM ou Firestore peut voir l'URL. Ce n'est pas un anti-cheat compétitif.
-- Le joueur peut lire les titres/artistes des morceaux du round courant via l'API Firestore (nécessaire pour la lecture audio locale). On ne promet pas une partie 100 % anti-triche.
+- Les `previewUrl` iTunes sont stockés dans Firestore : un participant légitime peut inspecter le DOM/Firestore et voir l'URL ou les titres/artistes. Pas d'anti-triche compétitif — Blindie est un jeu entre potes.
+- Un participant peut lire toutes les réponses/players de SA room (utile pour le scoreboard, mais pas une preuve d'identité forte).
 
 ---
 

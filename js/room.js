@@ -137,26 +137,29 @@ export async function joinRoom(roomId, playerId, playerName) {
   }
 }
 
-// Quitter une room. Pour ne PAS casser le scoring d'un round en cours, on
-// conserve le doc player pendant les statuts "playing" et "locked" — il
-// sera nettoyé naturellement quand le host avancera (ou via un host kick).
-// Statuts "lobby"/"reveal"/"finished" : delete OK.
+// Quitter une room. Pour ne PAS casser le scoring/scoreboard pendant une
+// partie active, on conserve le doc player pendant les statuts "playing",
+// "locked" et "reveal" — les règles Firestore refusent d'ailleurs un
+// self-delete dans ces statuts. Delete OK uniquement en "lobby" (partie
+// pas encore lancée) ou "finished" (partie terminée).
 export async function leaveRoom(roomId, playerId) {
+  let room;
   try {
-    const room = await getRoom(roomId);
-    if (!room) return;
-    if (room.status === 'playing' || room.status === 'locked') {
-      // best-effort : on signale juste "encore là" et on reste en place
-      await updateDoc(playerDoc(roomId, playerId), {
-        lastSeen: serverTimestamp(),
-      }).catch(() => {});
-      return;
-    }
+    room = await getRoom(roomId);
   } catch (e) {
-    // Si le getRoom échoue, on tente quand même un delete best-effort
-    console.warn('leaveRoom: getRoom failed, falling back to delete', e);
+    console.warn('leaveRoom: getRoom failed', e);
+    return;  // safer to not attempt anything than to risk a failed write
   }
-  await deleteDoc(playerDoc(roomId, playerId)).catch(() => {});
+  if (!room) return;
+
+  if (room.status === 'lobby' || room.status === 'finished') {
+    await deleteDoc(playerDoc(roomId, playerId)).catch(() => {});
+  } else {
+    // playing / locked / reveal : best-effort touch et on garde le doc
+    await updateDoc(playerDoc(roomId, playerId), {
+      lastSeen: serverTimestamp(),
+    }).catch(() => {});
+  }
 }
 
 // Met à jour le score cumulé d'un joueur. Tolérant au cas où le doc player
