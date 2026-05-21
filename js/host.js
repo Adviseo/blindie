@@ -17,8 +17,9 @@ import {
 import { enrichTracksWithPreviews } from './previews.js';
 import {
   createRoom, addTracksToRoom, fetchRoomTracks,
-  startRound, lockRound, revealRound, nextRound, endGame,
-  scoreRound, listenPlayers, listenAnswers, deleteRoom,
+  startRound, lockRound, revealRound, endGame,
+  scoreRound, fetchAnswersForRound,
+  listenPlayers, listenAnswers, deleteRoom,
 } from './room.js';
 import { escapeHtml, formatArtists, safeImageUrl } from './utils.js';
 import { appConfig } from './config.js';
@@ -348,14 +349,21 @@ $('btn-stop-audio').addEventListener('click', async () => {
     // Lock si pas déjà fait (stop anticipé). Idempotent : si la room est
     // déjà "locked", c'est un no-op côté Firestore.
     await lockRound(state.roomId);
-    // Score toutes les réponses avant de révéler. La fonction retourne les
-    // answers enrichis avec leurs scores : on écrase state.answers pour ne
-    // pas attendre que le listener Firestore propage l'update.
+    // On re-fetch les réponses fraîchement présentes en Firestore plutôt
+    // que de relire state.answers : si une réponse a été acceptée juste
+    // avant le lock mais que le snapshot listener n'a pas encore propagé,
+    // elle serait absente de state.answers et ne serait jamais scorée.
+    const latestAnswers = await fetchAnswersForRound(
+      state.roomId, state.roundIndex,
+    );
+    // scoreRound retourne les answers enrichis avec leurs scores : on
+    // écrase state.answers pour rendre l'UI immédiatement sans attendre
+    // que le listener Firestore propage l'update.
     const scored = await scoreRound(
       state.roomId,
       state.roundIndex,
       state.currentTrack,
-      state.answers,
+      latestAnswers,
       { pointsTitle: appConfig.pointsTitle, pointsArtist: appConfig.pointsArtist },
     );
     state.answers = scored;
@@ -437,7 +445,9 @@ function renderRevealAnswers() {
 $('btn-next-round').addEventListener('click', async () => {
   state.roundIndex++;
   if (state.roundIndex >= state.tracks.length) return finishGame();
-  await nextRound(state.roomId, state.roundIndex);
+  // playRound() appelle déjà startRound(roomId, roundIndex) qui écrit
+  // currentRoundStartedAt. Un appel séparé à nextRound() écrirait un 2e
+  // timestamp et désynchroniserait l'audio des joueurs.
   await playRound();
 });
 

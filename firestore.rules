@@ -89,7 +89,10 @@ service cloud.firestore {
 
         allow read: if request.auth != null;
 
-        allow create: if isSelf() && playerCreateFields();
+        // Le joueur crée son doc avec name/joinedAt/lastSeen.
+        // Le host peut aussi créer (cas edge : updatePlayerScore en setDoc
+        // merge sur un doc supprimé entre-temps → recrée un stub avec score).
+        allow create: if (isSelf() && playerCreateFields()) || isHostHere();
 
         allow update: if (isSelf() && playerUpdateAffectedOk())
                       || isHostHere();

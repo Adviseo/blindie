@@ -113,26 +113,63 @@ export async function fetchTrackByOrder(roomId, order) {
 // Players
 // ===================================================================
 
-// A joining player creates their own player doc using their Firebase Auth
-// uid (so listenRoom can identify them later).
-// Note : on n'écrit PAS `score` ici — les règles Firestore interdisent au
-// joueur de toucher à ce champ. Firestore traite undefined comme 0 et
-// `increment()` côté host créera le champ automatiquement.
+// A joining player creates (or refreshes) their own player doc.
+// Les règles Firestore interdisent au joueur :
+//   - de modifier `joinedAt` après création
+//   - de toucher au champ `score`
+// Donc on distingue 1ère arrivée vs re-join :
+//   - 1ère arrivée : setDoc avec name + joinedAt + lastSeen
+//   - re-join    : updateDoc qui ne touche que name + lastSeen
 export async function joinRoom(roomId, playerId, playerName) {
-  await setDoc(playerDoc(roomId, playerId), {
-    name: playerName,
-    joinedAt: serverTimestamp(),
-    lastSeen: serverTimestamp(),
-  }, { merge: true });
+  const ref = playerDoc(roomId, playerId);
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    await updateDoc(ref, {
+      name: playerName,
+      lastSeen: serverTimestamp(),
+    });
+  } else {
+    await setDoc(ref, {
+      name: playerName,
+      joinedAt: serverTimestamp(),
+      lastSeen: serverTimestamp(),
+    });
+  }
 }
 
+// Quitter une room. Pour ne PAS casser le scoring d'un round en cours, on
+// conserve le doc player pendant les statuts "playing" et "locked" — il
+// sera nettoyé naturellement quand le host avancera (ou via un host kick).
+// Statuts "lobby"/"reveal"/"finished" : delete OK.
 export async function leaveRoom(roomId, playerId) {
+  try {
+    const room = await getRoom(roomId);
+    if (!room) return;
+    if (room.status === 'playing' || room.status === 'locked') {
+      // best-effort : on signale juste "encore là" et on reste en place
+      await updateDoc(playerDoc(roomId, playerId), {
+        lastSeen: serverTimestamp(),
+      }).catch(() => {});
+      return;
+    }
+  } catch (e) {
+    // Si le getRoom échoue, on tente quand même un delete best-effort
+    console.warn('leaveRoom: getRoom failed, falling back to delete', e);
+  }
   await deleteDoc(playerDoc(roomId, playerId)).catch(() => {});
 }
 
+// Met à jour le score cumulé d'un joueur. Tolérant au cas où le doc player
+// a été supprimé entre-temps (départ, kick, etc.) : on utilise setDoc+merge
+// avec increment(), ce qui (re)crée un doc minimal au pire. Comme ça,
+// scoreRound ne casse jamais entièrement à cause d'un joueur disparu.
 export async function updatePlayerScore(roomId, playerId, points) {
   if (!points) return;
-  await updateDoc(playerDoc(roomId, playerId), { score: increment(points) });
+  await setDoc(playerDoc(roomId, playerId), {
+    score: increment(points),
+  }, { merge: true }).catch(err => {
+    console.warn(`updatePlayerScore(${playerId}) failed`, err);
+  });
 }
 
 export async function touchPlayer(roomId, playerId) {
@@ -164,6 +201,16 @@ export function listenAnswers(roomId, roundIndex, callback) {
   });
 }
 
+// Lecture ponctuelle (one-shot) des réponses d'un round. Utilisé par le host
+// au moment du reveal pour scorer la liste FRAÎCHE de Firestore et pas
+// state.answers (qui peut être en retard si une réponse vient d'arriver
+// juste avant le lock).
+export async function fetchAnswersForRound(roomId, roundIndex) {
+  const q = query(answersCol(roomId), where('roundIndex', '==', roundIndex));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
 // ===================================================================
 // Game flow
 // ===================================================================
@@ -188,10 +235,6 @@ export async function revealRound(roomId, trackId) {
     status: 'reveal',
     revealedTrackId: trackId,
   });
-}
-
-export async function nextRound(roomId, newIndex) {
-  await startRound(roomId, newIndex);
 }
 
 export async function endGame(roomId) {
