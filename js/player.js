@@ -402,6 +402,7 @@ function unlockAudio() {
   if (!state.localAudio) state.localAudio = $('local-audio');
   // Joue un son muet pour débloquer la lecture audio dans la session.
   // C'est le pattern standard pour iOS/Android.
+  state.localAudio.src = 'silence.wav';
   state.localAudio.muted = true;
   state.localAudio.play().then(() => {
     state.localAudio.pause();
