@@ -162,6 +162,7 @@ async function handleRoomUpdate(room) {
         startPlayerTimer(room);
       }
       $('play-round').textContent = room.currentRoundIndex + 1;
+      if (room.totalRounds) $('play-round-total').textContent = room.totalRounds;
       break;
 
     case 'locked':
@@ -171,6 +172,7 @@ async function handleRoomUpdate(room) {
       stopLocalAudio();
       showState('playing');
       $('play-round').textContent = room.currentRoundIndex + 1;
+      if (room.totalRounds) $('play-round-total').textContent = room.totalRounds;
       $('play-timer').textContent = '🔒';
       $('play-timer').classList.add('danger');
       $('answer-title').disabled = true;
