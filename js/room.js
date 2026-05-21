@@ -306,8 +306,12 @@ export async function submitAnswer(roomId, playerId, playerName, roundIndex, ans
 // (depuis listenAnswers). Retourne la liste enrichie des answers scorés,
 // que le host peut afficher immédiatement sans attendre le re-snapshot
 // du listener.
+//
+// Toutes les writes passent dans un seul writeBatch : soit tout commit,
+// soit rien — pas de scoreboard à moitié à jour si la connexion drop.
 export async function scoreRound(roomId, roundIndex, track, answers, settings) {
   const scored = [];
+  const batch = writeBatch(db);
   for (const ans of answers) {
     const newScores = calculateScore(
       { titleAnswer: ans.titleAnswer, artistAnswer: ans.artistAnswer },
@@ -317,20 +321,23 @@ export async function scoreRound(roomId, roundIndex, track, answers, settings) {
     const previousTotal = ans.totalScore || 0;
     const delta = newScores.totalScore - previousTotal;
 
-    // Met à jour la réponse avec les scores calculés
-    await updateDoc(doc(answersCol(roomId), ans.id), {
+    batch.update(doc(answersCol(roomId), ans.id), {
       scoreTitle: newScores.scoreTitle,
       scoreArtist: newScores.scoreArtist,
       totalScore: newScores.totalScore,
     });
 
-    // Ajuste le score cumulé du joueur
     if (delta !== 0) {
-      await updatePlayerScore(roomId, ans.playerId, delta);
+      // setDoc(merge:true) plutôt qu'update : tolère un player doc supprimé
+      // entre-temps (départ, kick) — on recrée un stub avec juste le score.
+      batch.set(playerDoc(roomId, ans.playerId), {
+        score: increment(delta),
+      }, { merge: true });
     }
 
     scored.push({ ...ans, ...newScores });
   }
+  await batch.commit();
   return scored;
 }
 

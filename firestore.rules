@@ -120,7 +120,14 @@ service cloud.firestore {
         // Le joueur crée son propre doc.
         // Le host peut aussi créer (cas edge : updatePlayerScore via setDoc
         // merge sur un doc supprimé → recrée un stub avec score).
-        allow create: if (isSelf() && playerCreateFields()) || isHostHere();
+        // On exige que la room existe pour bloquer la création de player
+        // docs orphelins dans des rooms fantômes (DoS storage).
+        allow create: if (
+                        isSelf()
+                        && playerCreateFields()
+                        && exists(/databases/$(database)/documents/rooms/$(roomId))
+                      )
+                      || isHostHere();
         allow update: if (isSelf() && playerUpdateAffectedOk()) || isHostHere();
         allow delete: if canSelfDelete() || isHostHere();
       }

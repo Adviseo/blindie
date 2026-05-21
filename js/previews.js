@@ -114,36 +114,48 @@ export async function findPreviewDeezer(_trackName, _artistName) {
 // ===================================================================
 
 // Find previews for an array of { id, name, artists } Spotify tracks.
-// Yields one resolved result per track via the onProgress callback so the
-// host UI can update incrementally (rather than waiting on a full Promise.all).
-// Returns the full enriched array once done.
+// Pool de workers concurrents (CONCURRENCY) pour éviter d'attendre 40 fetch
+// iTunes en séquence. onProgress reçoit (enriched, done, total, originalIndex)
+// — originalIndex sert au caller pour cibler la bonne ligne UI puisque les
+// résultats n'arrivent plus dans l'ordre.
+const ENRICH_CONCURRENCY = 5;
+
 export async function enrichTracksWithPreviews(spotifyTracks, onProgress) {
-  const out = [];
-  let i = 0;
-  for (const t of spotifyTracks) {
-    const primaryArtist = Array.isArray(t.artists) ? t.artists[0] : t.artists;
-    const preview = await findPreview(t.name, primaryArtist);
-    const enriched = {
-      order: i,
-      spotifyId: t.id,
-      title: t.name,
-      artists: Array.isArray(t.artists) ? t.artists : [t.artists].filter(Boolean),
-      album: t.album || null,
-      imageUrl: t.image || null,
-      previewUrl: preview?.previewUrl || null,
-      source: preview?.source || null,
-      matchedTrackName: preview?.matchedTrackName || null,
-      matchedArtistName: preview?.matchedArtistName || null,
-      confidence: preview?.confidence || 0,
-      playable: !!preview?.previewUrl,
-      normalizedTitle: normalizeText(t.name),
-      normalizedArtists: (Array.isArray(t.artists) ? t.artists : [t.artists])
-        .filter(Boolean)
-        .map(normalizeText),
-    };
-    out.push(enriched);
-    i++;
-    if (onProgress) onProgress(enriched, i, spotifyTracks.length);
-  }
+  const out = new Array(spotifyTracks.length);
+  let cursor = 0;
+  let done = 0;
+
+  const worker = async () => {
+    while (true) {
+      const i = cursor++;
+      if (i >= spotifyTracks.length) return;
+      const t = spotifyTracks[i];
+      const primaryArtist = Array.isArray(t.artists) ? t.artists[0] : t.artists;
+      const preview = await findPreview(t.name, primaryArtist);
+      const enriched = {
+        order: i,
+        spotifyId: t.id,
+        title: t.name,
+        artists: Array.isArray(t.artists) ? t.artists : [t.artists].filter(Boolean),
+        album: t.album || null,
+        imageUrl: t.image || null,
+        previewUrl: preview?.previewUrl || null,
+        source: preview?.source || null,
+        matchedTrackName: preview?.matchedTrackName || null,
+        matchedArtistName: preview?.matchedArtistName || null,
+        confidence: preview?.confidence || 0,
+        playable: !!preview?.previewUrl,
+        normalizedTitle: normalizeText(t.name),
+        normalizedArtists: (Array.isArray(t.artists) ? t.artists : [t.artists])
+          .filter(Boolean)
+          .map(normalizeText),
+      };
+      out[i] = enriched;
+      done++;
+      if (onProgress) onProgress(enriched, done, spotifyTracks.length, i);
+    }
+  };
+
+  await Promise.all(Array.from({ length: ENRICH_CONCURRENCY }, worker));
   return out;
 }

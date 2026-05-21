@@ -16,7 +16,7 @@ import {
 } from './spotify.js';
 import { enrichTracksWithPreviews } from './previews.js';
 import {
-  createRoom, addTracksToRoom, fetchRoomTracks,
+  createRoom, getRoom, addTracksToRoom, fetchRoomTracks,
   startRound, lockRound, revealRound, endGame,
   scoreRound, fetchAnswersForRound,
   listenPlayers, listenAnswers, deleteRoom,
@@ -74,6 +74,12 @@ async function refreshSpotifyChip() {
   }
 }
 
+// === Session persistence ===
+// Permet au host de récupérer sa room sur refresh accidentel pendant une
+// partie. On stocke uniquement le roomId — l'identité Auth (state.hostId)
+// est restaurée via ensureAnonAuth (uid Firebase stable dans le navigateur).
+const HOST_SESSION_KEY = 'blindie.host.roomId';
+
 // === Init ===
 (async function init() {
   try { await handleSpotifyCallback(); }
@@ -85,6 +91,10 @@ async function refreshSpotifyChip() {
 
   await refreshSpotifyChip();
 
+  // Si on a une room hôte sauvegardée et que le uid match, on saute
+  // directement à l'étape correspondante au lieu de re-passer par l'import.
+  if (await tryRehydrateHostSession()) return;
+
   if (!isLoggedIn()) {
     showStep('login');
     $('btn-spotify-login').addEventListener('click', () => loginWithSpotify());
@@ -92,6 +102,121 @@ async function refreshSpotifyChip() {
   }
   showStep('import');
 })();
+
+async function tryRehydrateHostSession() {
+  const savedRoomId = sessionStorage.getItem(HOST_SESSION_KEY);
+  if (!savedRoomId) return false;
+
+  let room;
+  try { room = await getRoom(savedRoomId); }
+  catch { sessionStorage.removeItem(HOST_SESSION_KEY); return false; }
+
+  if (!room || room.hostId !== state.hostId) {
+    sessionStorage.removeItem(HOST_SESSION_KEY);
+    return false;
+  }
+
+  state.roomId = savedRoomId;
+  try { state.tracks = await fetchRoomTracks(savedRoomId); }
+  catch (e) {
+    console.warn('Rehydration: fetchRoomTracks failed', e);
+    sessionStorage.removeItem(HOST_SESSION_KEY);
+    return false;
+  }
+
+  $('room-code').textContent = savedRoomId;
+  $('join-url').textContent = `${appConfig.baseUrl}/index.html?code=${savedRoomId}`;
+
+  state.unsubPlayers = listenPlayers(savedRoomId, players => {
+    state.players = players.filter(p => p.id !== state.hostId);
+    renderLobbyPlayers();
+    renderLiveScoreboard();
+    if (state.step === 'finished') renderPodium();
+  });
+
+  switch (room.status) {
+    case 'lobby':    showStep('lobby'); break;
+    case 'playing':
+    case 'locked':   await resumeRound(room); break;
+    case 'reveal':   await resumeReveal(room); break;
+    case 'finished': showStep('finished'); break;  // podium peint au 1er snapshot
+    default:         showStep('lobby');
+  }
+  return true;
+}
+
+async function resumeRound(room) {
+  state.roundIndex = room.currentRoundIndex;
+  const track = state.tracks[state.roundIndex];
+  if (!track) { showStep('lobby'); return; }
+  state.currentTrack = track;
+
+  showStep('playing');
+  $('round-num').textContent = state.roundIndex + 1;
+  $('round-total').textContent = state.tracks.length;
+  const art = $('album-art');
+  art.className = 'album-art mystery';
+  art.innerHTML = '';
+  $('answers').innerHTML = '<p class="muted">En attente des buzz…</p>';
+  $('answer-count').textContent = '0';
+
+  const startedAtMs = room.currentRoundStartedAt?.toMillis?.() || null;
+  const durationSec = room.settings?.roundDurationSeconds
+                      || appConfig.defaultRoundDurationSeconds;
+  const elapsedSec = startedAtMs ? (Date.now() - startedAtMs) / 1000 : 0;
+  const remainingSec = Math.max(0, durationSec - elapsedSec);
+
+  if (room.status === 'playing' && remainingSec > 0) {
+    state.audio = new Audio(track.previewUrl);
+    state.audio.volume = 1;
+    try {
+      // iTunes preview = 30 s. Seek à l'avancement actuel pour rester
+      // synchro avec les joueurs (qui font pareil dans player.js).
+      state.audio.currentTime = Math.min(29.5, Math.max(0, elapsedSec));
+      await state.audio.play();
+    } catch (err) {
+      // Autoplay refusé après refresh : tant pis, le host peut cliquer Rejouer.
+      console.warn('Resume audio bloqué', err);
+    }
+    $('btn-stop-audio').textContent = '⏹ Stop & révéler';
+    $('btn-stop-audio').disabled = false;
+    startTimer(Math.round(remainingSec));
+  } else {
+    // status == 'locked' OU 'playing' mais timer écoulé pendant qu'on était
+    // refresh (personne pour auto-lock). On lock pour rattraper l'état.
+    if (room.status === 'playing') {
+      try { await lockRound(state.roomId); }
+      catch (e) { console.warn('Catch-up lock failed', e); }
+    }
+    $('btn-stop-audio').textContent = '🎯 Révéler';
+    $('btn-stop-audio').disabled = false;
+    $('timer').textContent = '0';
+    $('timer').classList.add('danger');
+  }
+
+  if (state.unsubAnswers) state.unsubAnswers();
+  state.unsubAnswers = listenAnswers(state.roomId, state.roundIndex, answers => {
+    state.answers = answers;
+    if (state.step === 'reveal') renderRevealAnswers();
+    else renderLiveAnswers();
+  });
+}
+
+async function resumeReveal(room) {
+  state.roundIndex = room.currentRoundIndex;
+  const track = state.tracks[state.roundIndex];
+  if (!track) { showStep('lobby'); return; }
+  state.currentTrack = track;
+
+  if (state.unsubAnswers) state.unsubAnswers();
+  state.unsubAnswers = listenAnswers(state.roomId, state.roundIndex, answers => {
+    state.answers = answers;
+    if (state.step === 'reveal') renderRevealAnswers();
+  });
+
+  state.answers = await fetchAnswersForRound(state.roomId, state.roundIndex);
+  doReveal();
+}
 
 // === STEP 2 : Import playlist ===
 $('btn-load-playlist').addEventListener('click', async () => {
@@ -142,9 +267,9 @@ $('btn-load-playlist').addEventListener('click', async () => {
     `).join('');
 
     let okN = 0, missingN = 0;
-    state.enriched = await enrichTracksWithPreviews(candidates, (track, done, total) => {
-      // Update progress UI
-      const idx = done - 1;
+    state.enriched = await enrichTracksWithPreviews(candidates, (track, done, total, idx) => {
+      // idx = position originale dans candidates (les résultats arrivent
+      // dans le désordre car les workers tournent en parallèle).
       const row = $(`track-list`).querySelector(`[data-idx="${idx}"]`);
       if (row) {
         row.classList.remove('status-pending');
@@ -208,6 +333,7 @@ $('btn-create-room').addEventListener('click', async () => {
   try {
     const { roomId } = await createRoom(state.hostId);
     state.roomId = roomId;
+    sessionStorage.setItem(HOST_SESSION_KEY, roomId);
     await addTracksToRoom(roomId, state.enriched);
     state.tracks = await fetchRoomTracks(roomId);
 
@@ -221,6 +347,7 @@ $('btn-create-room').addEventListener('click', async () => {
       state.players = players.filter(p => p.id !== state.hostId);
       renderLobbyPlayers();
       renderLiveScoreboard();
+      if (state.step === 'finished') renderPodium();
     });
 
     showStep('lobby');
@@ -260,6 +387,7 @@ $('btn-start-game').addEventListener('click', async () => {
 $('btn-cancel-room').addEventListener('click', async () => {
   if (!confirm("Annuler et supprimer la room ?")) return;
   if (state.unsubPlayers) state.unsubPlayers();
+  sessionStorage.removeItem(HOST_SESSION_KEY);
   await deleteRoom(state.roomId);
   window.location.href = './index.html';
 });
@@ -333,10 +461,17 @@ function startTimer(seconds) {
   }, 1000);
 }
 
-$('btn-replay').addEventListener('click', () => {
-  if (!state.audio) return;
-  state.audio.currentTime = 0;
-  state.audio.play();
+$('btn-replay').addEventListener('click', async () => {
+  if (!state.currentTrack?.previewUrl) return;
+  // Recrée l'élément audio plutôt que seek+play : après que `ended` ait
+  // été émis (preview iTunes = 30 s, souvent finie quand le host clique),
+  // Chrome ne relance pas la lecture proprement via un simple
+  // currentTime=0 + play().
+  if (state.audio) state.audio.pause();
+  state.audio = new Audio(state.currentTrack.previewUrl);
+  state.audio.volume = 1;
+  try { await state.audio.play(); }
+  catch (err) { console.warn('Replay refusé', err); }
 });
 
 $('btn-stop-audio').addEventListener('click', async () => {
@@ -497,6 +632,7 @@ function showError(id, msg) {
 function hideError(id) { $(id).classList.add('hidden'); }
 
 $('btn-back-home-host').addEventListener('click', () => {
+  sessionStorage.removeItem(HOST_SESSION_KEY);
   window.location.href = './index.html';
 });
 
