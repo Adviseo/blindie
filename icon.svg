@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1f0d3d"/>
+      <stop offset="50%" stop-color="#14001f"/>
+      <stop offset="100%" stop-color="#2a0a4f"/>
+    </linearGradient>
+    <linearGradient id="b-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ff2e9a"/>
+      <stop offset="50%" stop-color="#b14aed"/>
+      <stop offset="100%" stop-color="#00f0ff"/>
+    </linearGradient>
+    <radialGradient id="halo-pink" cx="32%" cy="22%" r="55%">
+      <stop offset="0%" stop-color="#ff2e9a" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#ff2e9a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="halo-cyan" cx="78%" cy="82%" r="50%">
+      <stop offset="0%" stop-color="#00f0ff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#00f0ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="halo-center" cx="50%" cy="50%" r="40%">
+      <stop offset="0%" stop-color="#b14aed" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#b14aed" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Fond synthwave plein (pas de transparence — important pour les launchers Android maskable) -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="url(#halo-pink)"/>
+  <rect width="512" height="512" fill="url(#halo-cyan)"/>
+
+  <!-- Grille néon discrète style synthwave -->
+  <g opacity="0.07" stroke="#ffffff" stroke-width="1.5" fill="none">
+    <line x1="0"   y1="128" x2="512" y2="128"/>
+    <line x1="0"   y1="256" x2="512" y2="256"/>
+    <line x1="0"   y1="384" x2="512" y2="384"/>
+    <line x1="128" y1="0"   x2="128" y2="512"/>
+    <line x1="256" y1="0"   x2="256" y2="512"/>
+    <line x1="384" y1="0"   x2="384" y2="512"/>
+  </g>
+
+  <!-- Halo violet central derrière le B -->
+  <rect width="512" height="512" fill="url(#halo-center)"/>
+
+  <!-- B principal, dans la safe-zone maskable (cercle r=205) -->
+  <text x="256" y="380" text-anchor="middle"
+        font-family="'Bebas Neue', Impact, 'Arial Black', 'Haettenschweiler', sans-serif"
+        font-size="360" font-weight="900" fill="url(#b-grad)"
+        filter="url(#glow)">B</text>
+</svg>
