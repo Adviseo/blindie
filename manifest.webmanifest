@@ -1,7 +1,7 @@
 {
   "name": "Blindie",
   "short_name": "Blindie",
-  "description": "Blind test entre potes",
+  "description": "Le blind test des playlists perso",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

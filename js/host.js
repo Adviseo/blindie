@@ -654,6 +654,15 @@ function doReveal() {
   const revealImg = safeImageUrl(state.currentTrack.imageUrl);
   art.innerHTML = revealImg ? `<img src="${revealImg}" alt="">` : '🎵';
 
+  // Apple Music link
+  const appleLink = $('reveal-apple-link');
+  if (state.currentTrack.trackViewUrl) {
+    appleLink.href = state.currentTrack.trackViewUrl;
+    appleLink.classList.remove('hidden');
+  } else {
+    appleLink.classList.add('hidden');
+  }
+
   renderRevealAnswers();
 }
 

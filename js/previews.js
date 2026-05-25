@@ -70,6 +70,7 @@ export async function findPreviewITunes(trackName, artistName) {
     if (!best || confidence > best.confidence) {
       best = {
         previewUrl: it.previewUrl,
+        trackViewUrl: it.trackViewUrl || null,  // link to Apple Music / iTunes Store
         source: 'itunes',
         matchedTrackName: it.trackName,
         matchedArtistName: it.artistName,
@@ -140,6 +141,7 @@ export async function enrichTracksWithPreviews(spotifyTracks, onProgress) {
         album: t.album || null,
         imageUrl: t.image || null,
         previewUrl: preview?.previewUrl || null,
+        trackViewUrl: preview?.trackViewUrl || null,
         source: preview?.source || null,
         matchedTrackName: preview?.matchedTrackName || null,
         matchedArtistName: preview?.matchedArtistName || null,

@@ -362,6 +362,17 @@ async function renderReveal(room) {
     result.style.background = 'rgba(184,168,212,0.15)';
     result.style.color = 'var(--text-dim)';
   }
+
+  // Apple Music link
+  const appleLink = $('reveal-apple-link');
+  if (track.trackViewUrl) {
+    appleLink.href = track.trackViewUrl;
+    appleLink.classList.remove('hidden');
+    appleLink.style.display = '';
+  } else {
+    appleLink.classList.add('hidden');
+    appleLink.style.display = 'none';
+  }
 }
 
 async function findMyAnswerForRound(roundIndex) {
